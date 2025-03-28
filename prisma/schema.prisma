@@ -1,0 +1,585 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  USER
+  GUEST
+  MUSTERI_SEVIYE1
+  MUSTERI_SEVIYE2
+  HIZMETSAGLAYICI_SEVIYE1
+  HIZMETSAGLAYICI_SEVIYE2
+}
+
+model User {
+  id            String          @id @default(cuid())
+  name          String?
+  email         String          @unique
+  emailVerified DateTime?
+  password      String?
+  role          UserRole        @default(GUEST)
+  accounts      Account[]
+  sessions      Session[]
+  // Optional for WebAuthn support
+  Authenticator Authenticator[]
+
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  firstName String?
+  lastName  String?
+  bloodType UserBloodType?
+  birthday  DateTime?
+  sex       UserSex?
+  photo     String?
+  phone     String?
+
+  registrationDate DateTime @default(now())
+
+  institutionId String?
+  institution   Institutions? @relation(fields: [institutionId], references: [id]) // İlişki Tanımı
+
+  ProviderDevices Devices[] @relation("Provider")
+
+  OwnerDevices Devices[] @relation("Owner")
+
+  CreatorOfferCards OfferCards[] @relation("Creator")
+
+  RecipientOfferCards OfferCards[] @relation("Recipient")
+
+  ProviderMaintenanceCards MaintenanceCards[] @relation("Provider")
+
+  CustomerMaintenanceCards MaintenanceCards[] @relation("Customer")
+
+  CreatorAppointments Appointments[] @relation("AppCreator")
+
+  ProviderAppointments Appointments[] @relation("AppRecipient")
+
+  CreatorNotifications   Notifications[] @relation("NotCreator")
+  RecipientNotifications Notifications[] @relation("NotRecipient")
+
+  Logs Logs[]
+
+  CreatorAnnouncements Announcements[] @relation("AnnCreator")
+
+  OfferRequests OfferRequests[] @relation("Creator")
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Email verification için yeni model
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  type      String // "REGISTER" veya "LOGIN"
+  expires   DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([email, token])
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+}
+
+// Optional for WebAuthn support
+model Authenticator {
+  credentialID         String  @unique
+  userId               String
+  providerAccountId    String
+  credentialPublicKey  String
+  counter              Int
+  credentialDeviceType String
+  credentialBackedUp   Boolean
+  transports           String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, credentialID])
+}
+
+// ŞİRKETLER
+model Institutions {
+  id               String   @id @default(cuid())
+  name             String
+  address          String
+  email            String
+  phone            String
+  registrationDate DateTime @default(now())
+
+  User User[]
+
+  ProviderInsDevices Devices[] @relation("ProviderIns")
+
+  OwnerInsDevices Devices[] @relation("OwnerIns")
+
+  CreatorInsOfferCards OfferCards[] @relation("CreatorIns")
+
+  RecipientInsOfferCards OfferCards[] @relation("RecipientIns")
+
+  ProviderInsMaintenanceCards MaintenanceCards[] @relation("ProviderIns")
+
+  CustomerInsMaintenanceCards MaintenanceCards[] @relation("CustomerIns")
+
+  CreatorInsAppointments Appointments[] @relation("AppCreatorIns")
+
+  RecipientInsAppointments Appointments[] @relation("AppRecipientIns")
+
+  CreatorInsNotifications Notifications[] @relation("NotCreatorIns")
+
+  RecipientInsNotifications Notifications[] @relation("NotRecipientIns")
+
+  CreatorAnnouncements Announcements[] @relation("AnnCreatorIns")
+
+  IsgMembers IsgMembers[]
+
+  OfferRequests OfferRequests[] @relation("CreatorIns")
+}
+
+//CİHAZLAR Yangın Tüpü - Sprinkler vs
+model Devices {
+  id              String       @id @default(cuid())
+  serialNumber    String       @unique
+  qrcode          String       @unique
+  productionDate  DateTime
+  lastControlDate DateTime
+  expirationDate  DateTime
+  nextControlDate DateTime
+  location        String
+  location1       String
+  photo           String?
+  currentStatus   DeviceStatus
+
+  typeId String
+  type   DeviceTypes @relation(fields: [typeId], references: [id]) // İlişki Tanımı
+
+  featureId String
+  feature   DeviceFeatures @relation(fields: [featureId], references: [id]) // İlişki Tanımı
+
+  ownerId String
+  owner   User   @relation("Owner", fields: [ownerId], references: [id]) // İlişki Tanımı
+
+  ownerInstId String
+  ownerIns    Institutions @relation("OwnerIns", fields: [ownerInstId], references: [id]) // İlişki Tanımı
+
+  providerId String
+  provider   User   @relation("Provider", fields: [providerId], references: [id]) // İlişki Tanımı
+
+  providerInstId String
+  providerIns    Institutions @relation("ProviderIns", fields: [providerInstId], references: [id]) // İlişki Tanımı
+
+  isgMemberId String
+  isgMember   IsgMembers @relation(fields: [isgMemberId], references: [id]) // İlişki Tanımı
+
+  details String
+
+  MaintenanceCards MaintenanceCards[]
+
+  Notifications Notifications[]
+}
+
+//İSG Uzmanları
+model IsgMembers {
+  id           String   @id @default(cuid())
+  isgNumber    String
+  name         String
+  contractDate DateTime
+
+  institutionId String
+  institution   Institutions @relation(fields: [institutionId], references: [id]) // İlişki Tanımı 
+
+  Devices Devices[]
+}
+
+//Güvenlik Önlemi Türleri Yangın Tüpü - Sprinkler - Kağı - Alarm Sistemi vs 
+model DeviceTypes {
+  id   String @id @default(cuid())
+  name String
+
+  Devices Devices[]
+
+  MaintenanceCards MaintenanceCards[]
+
+  Notifications Notifications[]
+
+  DeviceFeatures DeviceFeatures[]
+
+  Operations Operations[]
+}
+
+//Güvenlik Önlemi Özellikleri CO2 - KKT - Otomatik Kapı
+model DeviceFeatures {
+  id   String @id @default(cuid())
+  name String
+
+  deviceTypeId String
+  deviceType   DeviceTypes @relation(fields: [deviceTypeId], references: [id]) // İlişki Tanımı
+
+  Devices Devices[]
+
+  MaintenanceCards MaintenanceCards[]
+}
+
+//Bakım Kartı her bir cihaz için ve kimin kime yaptığını tutacak
+model MaintenanceCards {
+  id                  String   @id @default(cuid())
+  maintenanceDate     DateTime @default(now())
+  nextMaintenanceDate DateTime
+
+  deviceId String
+  device   Devices @relation(fields: [deviceId], references: [id]) // İlişki Tanımı
+
+  deviceTypeId String
+  deviceType   DeviceTypes @relation(fields: [deviceTypeId], references: [id]) // İlişki Tanımı
+
+  deviceFeatureId String
+  deviceFeature   DeviceFeatures @relation(fields: [deviceFeatureId], references: [id]) // İlişki Tanımı
+
+  providerId String
+  provider   User   @relation("Provider", fields: [providerId], references: [id]) // İlişki Tanımı
+
+  providerInsId String
+  providerIns   Institutions @relation("ProviderIns", fields: [providerInsId], references: [id]) // İlişki Tanımı
+
+  customerId String
+  customer   User   @relation("Customer", fields: [customerId], references: [id]) // İlişki Tanımı
+
+  customerInsId String
+  customerIns   Institutions @relation("CustomerIns", fields: [customerInsId], references: [id]) // İlişki Tanımı
+
+  details String?
+
+  MaintenanceSub MaintenanceSub[]
+}
+
+model MaintenanceSub {
+  id String @id @default(cuid())
+
+  maintenanceCardId String
+  maintenanceCard   MaintenanceCards @relation(fields: [maintenanceCardId], references: [id]) // İlişki Tanımı
+
+  operationId String
+  opreation   Operations @relation(fields: [operationId], references: [id]) // İlişki Tanımı
+
+  detail String?
+}
+
+//Bakım sırasında kontrol edilen şeyler bunları Serkan yazacak 15-20 tane
+model Operations {
+  id   String @id @default(cuid())
+  name String
+
+  deviceTypeId String
+  deviceType   DeviceTypes @relation(fields: [deviceTypeId], references: [id]) // İlişki Tanımı
+
+  MaintenanceSub MaintenanceSub[]
+}
+
+//Teklif Kartı, kim tarafından kime verilmiş tüm detayları tutyor
+model OfferCards {
+  id           String   @id @default(cuid())
+  offerDate    DateTime @default(now())
+  validityDate DateTime
+
+  paymentTermId String
+  paymentTerm   PaymentTermTypes @relation(fields: [paymentTermId], references: [id]) // İlişki Tanımı
+
+  status OfferStatus
+
+  creatorId String
+  creator   User   @relation("Creator", fields: [creatorId], references: [id]) // İlişki Tanımı
+
+  creatorInsId String
+  creatorIns   Institutions @relation("CreatorIns", fields: [creatorInsId], references: [id]) // İlişki Tanımı
+
+  recipientId String
+  recipient   User   @relation("Recipient", fields: [recipientId], references: [id]) // İlişki Tanımı
+
+  recipientInsId String
+  recipientIns   Institutions @relation("RecipientIns", fields: [recipientInsId], references: [id]) // İlişki Tanımı
+
+  requestId String?
+  request OfferRequests? @relation(fields: [requestId], references: [id])
+
+  details String
+
+  OfferSub OfferSub[]
+}
+
+model OfferSub {
+  id String @id @default(cuid())
+
+  offerCardId String
+  offerCard   OfferCards @relation(fields: [offerCardId], references: [id]) // İlişki Tanımı
+
+  servideId String
+  service   Services @relation(fields: [servideId], references: [id]) // İlişki Tanımı
+
+  unitPrice Decimal
+  size      Decimal
+  detail    String?
+}
+
+//Teklif Kartı, kim tarafından kime verilmiş tüm detayları tutyor
+model OfferRequests {
+  id    String   @id @default(cuid())
+  start DateTime @default(now())
+  end   DateTime
+
+  status RequestStatus
+
+  creatorId String
+  creator   User   @relation("Creator", fields: [creatorId], references: [id]) // İlişki Tanımı
+
+  creatorInsId String
+  creatorIns   Institutions @relation("CreatorIns", fields: [creatorInsId], references: [id]) // İlişki Tanımı
+
+  details String
+
+  RequestSub RequestSub[]
+
+  OfferCards OfferCards[]
+}
+
+model RequestSub {
+  id String @id @default(cuid())
+
+  requiredDate DateTime
+
+  offerRequestId String
+  offerRequest   OfferRequests @relation(fields: [offerRequestId], references: [id]) // İlişki Tanımı
+
+  serviceId String
+  service   Services @relation(fields: [serviceId], references: [id]) // İlişki Tanımı
+
+  quantity Decimal
+  detail   String?
+}
+
+//Teklifte sunulan hizmetin başlıkları Örneğin Rutin Bakım, Eğitim, Danışmanlık, Ürün Satışı gibi
+model Services {
+  id   String @id @default(cuid())
+  name String
+
+  OfferSub OfferSub[]
+
+  RequestSub RequestSub[]
+}
+
+//Teklif kartındaki ödeme türleri peşin, 3 taksit, 6 taksit, çekle vs
+model PaymentTermTypes {
+  id   String @id @default(cuid())
+  name String
+
+  OfferCards OfferCards[]
+}
+
+//Bildirimler
+model Notifications {
+  id      String @id @default(cuid())
+  content String
+
+  creatorId String
+  creator   User   @relation("NotCreator", fields: [creatorId], references: [id]) // İlişki Tanımı
+
+  creatorInsId String
+  creatorIns   Institutions @relation("NotCreatorIns", fields: [creatorInsId], references: [id]) // İlişki Tanımı
+
+  recipientId String
+  recipient   User   @relation("NotRecipient", fields: [recipientId], references: [id]) // İlişki Tanımı
+
+  recipientInsId String
+  recipientIns   Institutions @relation("NotRecipientIns", fields: [recipientInsId], references: [id]) // İlişki Tanımı         
+
+  notificationDate DateTime           @default(now())
+  isRead           NotificationStatus
+
+  typeId String
+  type   NotificationTypes @relation(fields: [typeId], references: [id]) // İlişki Tanımı
+
+  deviceId String?
+  device   Devices? @relation(fields: [deviceId], references: [id]) // İlişki Tanımı
+
+  deviceTypeId String?
+  deviceType   DeviceTypes? @relation(fields: [deviceTypeId], references: [id]) // İlişki Tanımı
+}
+
+//Bildirim Türleri Hatırlatma Uyarı vs
+model NotificationTypes {
+  id   String @id @default(cuid())
+  name String
+
+  Notifications Notifications[]
+}
+
+//Servis sağlayıcı tarafından oluşturulan bir randevu
+model Appointments {
+  id      String   @id @default(cuid())
+  tittle  String
+  content String
+  start   DateTime
+  end     DateTime
+  create  DateTime @default(now())
+
+  creatorId String
+  creator   User   @relation("AppCreator", fields: [creatorId], references: [id]) // İlişki Tanımı
+
+  creatorInsId String
+  creatorIns   Institutions @relation("AppCreatorIns", fields: [creatorInsId], references: [id]) // İlişki Tanımı
+
+  recipientId String
+  recipient   User   @relation("AppRecipient", fields: [recipientId], references: [id]) // İlişki Tanımı
+
+  recipientInsId String
+  recipientIns   Institutions @relation("AppRecipientIns", fields: [recipientInsId], references: [id]) // İlişki Tanımı
+}
+
+//şimdi eklendi
+// Loglar
+model Logs {
+  id   String   @id @default(cuid())
+  date DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id]) // İlişki Tanımı
+
+  actionId String
+  action   Actions @relation(fields: [actionId], references: [id]) // İlişki Tanımı
+
+  tableId String
+  table   Tables @relation(fields: [tableId], references: [id]) // İlişki Tanımı
+
+  IP String
+}
+
+//Log sırasında yapılan işlem türleri ekle-sil-düzenle vs
+model Actions {
+  id   String @id @default(cuid())
+  name String
+
+  Logs Logs[]
+}
+
+//Tüm tablolar
+model Tables {
+  id   String @id @default(cuid())
+  name String
+
+  Logs Logs[]
+}
+
+//Duyurular  
+model Announcements {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  date        DateTime
+
+  creatorId String
+  creator   User   @relation("AnnCreator", fields: [creatorId], references: [id]) // İlişki Tanımı
+
+  creatorInsId String
+  creatorIns   Institutions @relation("AnnCreatorIns", fields: [creatorInsId], references: [id]) // İlişki Tanımı
+}
+
+model Teams {
+  id           String         @id @default(cuid())
+  name         String
+  TeamsMembers TeamsMembers[]
+}
+
+model TeamsMembers {
+  id               String        @id @default(cuid())
+  firstName        String
+  lastName         String
+  bloodType        UserBloodType
+  birthday         DateTime
+  sex              UserSex
+  photo            String?
+  email            String
+  phone            String
+  registrationDate DateTime      @default(now())
+  institutionId    Int
+  Teams            Teams[]
+}
+
+enum UserSex {
+  Erkek
+  Kadin
+  Diger
+}
+
+enum UserBloodType {
+  ARhP
+  ARhN
+  BRhP
+  BRhN
+  ABRhP
+  ABRhN
+  ORhP
+  ORhN
+}
+
+enum DeviceStatus {
+  Aktif
+  Pasif
+}
+
+enum OfferStatus {
+  Onaylandi
+  Red
+  Beklemede
+}
+
+enum RequestStatus {
+  Aktif
+  Pasif
+  Beklemede
+  Iptal
+  TeklifAlindi
+  Tamamlandi
+}
+
+enum NotificationStatus {
+  Okundu
+  Okunmadi
+}

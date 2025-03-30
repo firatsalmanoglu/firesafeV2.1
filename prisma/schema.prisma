@@ -137,6 +137,49 @@ model Authenticator {
   @@id([userId, credentialID])
 }
 
+// Ülke, İl ve İlçe modelleri
+model Country {
+  id         String   @id @default(cuid())
+  name       String   @unique
+  code       String?  @unique // Ülke kodu (TR, US, DE gibi)
+  phoneCode  String?  // Telefon kodu (+90, +1, +49 gibi)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // İlişkiler
+  cities     City[]
+  institutions Institutions[] // Ülkeye bağlı kurumlar
+}
+
+model City {
+  id         String   @id @default(cuid())
+  name       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // İlişkiler
+  countryId  String
+  country    Country  @relation(fields: [countryId], references: [id])
+  districts  District[]
+  institutions Institutions[] // Şehire bağlı kurumlar
+
+  @@unique([name, countryId]) // Bir ülkede aynı isimde iki şehir olmaması için
+}
+
+model District {
+  id         String   @id @default(cuid())
+  name       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // İlişkiler
+  cityId     String
+  city       City     @relation(fields: [cityId], references: [id])
+  institutions Institutions[] // İlçeye bağlı kurumlar
+
+  @@unique([name, cityId]) // Bir şehirde aynı isimde iki ilçe olmaması için
+}
+
 // ŞİRKETLER
 model Institutions {
   id               String   @id @default(cuid())
@@ -145,6 +188,16 @@ model Institutions {
   email            String
   phone            String
   registrationDate DateTime @default(now())
+
+  // Lokasyon ilişkileri
+  countryId        String?
+  country          Country?  @relation(fields: [countryId], references: [id])
+  
+  cityId           String?
+  city             City?     @relation(fields: [cityId], references: [id])
+  
+  districtId       String?
+  district         District? @relation(fields: [districtId], references: [id])
 
   User User[]
 

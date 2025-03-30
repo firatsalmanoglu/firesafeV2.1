@@ -3,6 +3,30 @@ import { hash } from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
+// Türkiye illeri
+const turkishCities = [
+  'Adana', 'Adıyaman', 'Afyonkarahisar', 'Ağrı', 'Amasya', 'Ankara', 'Antalya', 'Artvin', 
+  'Aydın', 'Balıkesir', 'Bilecik', 'Bingöl', 'Bitlis', 'Bolu', 'Burdur', 'Bursa', 
+  'Çanakkale', 'Çankırı', 'Çorum', 'Denizli', 'Diyarbakır', 'Edirne', 'Elazığ', 'Erzincan', 
+  'Erzurum', 'Eskişehir', 'Gaziantep', 'Giresun', 'Gümüşhane', 'Hakkari', 'Hatay', 'Isparta', 
+  'Mersin', 'İstanbul', 'İzmir', 'Kars', 'Kastamonu', 'Kayseri', 'Kırklareli', 'Kırşehir', 
+  'Kocaeli', 'Konya', 'Kütahya', 'Malatya', 'Manisa', 'Kahramanmaraş', 'Mardin', 'Muğla', 
+  'Muş', 'Nevşehir', 'Niğde', 'Ordu', 'Rize', 'Sakarya', 'Samsun', 'Siirt', 'Sinop', 
+  'Sivas', 'Tekirdağ', 'Tokat', 'Trabzon', 'Tunceli', 'Şanlıurfa', 'Uşak', 'Van', 
+  'Yozgat', 'Zonguldak', 'Aksaray', 'Bayburt', 'Karaman', 'Kırıkkale', 'Batman', 'Şırnak', 
+  'Bartın', 'Ardahan', 'Iğdır', 'Yalova', 'Karabük', 'Kilis', 'Osmaniye', 'Düzce'
+];
+
+// Popüler iller için ilçe bilgileri
+const cityDistricts: Record<string, string[]> = {
+  'Adana': ['Seyhan', 'Yüreğir', 'Çukurova', 'Sarıçam', 'Ceyhan', 'Kozan', 'İmamoğlu', 'Karataş', 'Pozantı', 'Karaisalı', 'Yumurtalık', 'Tufanbeyli', 'Feke', 'Aladağ', 'Saimbeyli'],
+  'Ankara': ['Altındağ', 'Çankaya', 'Keçiören', 'Mamak', 'Yenimahalle', 'Etimesgut', 'Sincan', 'Pursaklar', 'Polatlı', 'Gölbaşı', 'Beypazarı', 'Şereflikoçhisar', 'Elmadağ', 'Çubuk', 'Kahramankazan', 'Akyurt', 'Kalecik', 'Ayaş', 'Bala', 'Evren', 'Güdül', 'Haymana', 'Kızılcahamam', 'Nallıhan'],
+  'İstanbul': ['Adalar', 'Arnavutköy', 'Ataşehir', 'Avcılar', 'Bağcılar', 'Bahçelievler', 'Bakırköy', 'Başakşehir', 'Bayrampaşa', 'Beşiktaş', 'Beykoz', 'Beylikdüzü', 'Beyoğlu', 'Büyükçekmece', 'Çatalca', 'Çekmeköy', 'Esenler', 'Esenyurt', 'Eyüp', 'Fatih', 'Gaziosmanpaşa', 'Güngören', 'Kadıköy', 'Kağıthane', 'Kartal', 'Küçükçekmece', 'Maltepe', 'Pendik', 'Sancaktepe', 'Sarıyer', 'Silivri', 'Sultanbeyli', 'Sultangazi', 'Şile', 'Şişli', 'Tuzla', 'Ümraniye', 'Üsküdar', 'Zeytinburnu'],
+  'İzmir': ['Konak', 'Buca', 'Karabağlar', 'Bornova', 'Karşıyaka', 'Bayraklı', 'Çiğli', 'Torbalı', 'Menemen', 'Gaziemir', 'Ödemiş', 'Kemalpaşa', 'Bergama', 'Aliağa', 'Menderes', 'Tire', 'Urla', 'Dikili', 'Balçova', 'Kiraz', 'Seferihisar', 'Selçuk', 'Çeşme', 'Foça', 'Güzelbahçe', 'Beydağ', 'Karaburun'],
+  'Bursa': ['Osmangazi', 'Yıldırım', 'Nilüfer', 'İnegöl', 'Gemlik', 'Mustafakemalpaşa', 'Mudanya', 'Karacabey', 'Orhangazi', 'Kestel', 'Gürsu', 'İznik', 'Yenişehir', 'Orhaneli', 'Harmancık', 'Büyükorhan', 'Keles'],
+  'Antalya': ['Muratpaşa', 'Kepez', 'Konyaaltı', 'Alanya', 'Manavgat', 'Serik', 'Kumluca', 'Kaş', 'Kemer', 'Finike', 'Gazipaşa', 'Aksu', 'Döşemealtı', 'Demre', 'Korkuteli', 'Elmalı', 'İbradı', 'Akseki', 'Gündoğmuş']
+};
+
 async function main() {
   // Önce veritabanını temizle
   await prisma.user.deleteMany()
@@ -266,7 +290,75 @@ async function main() {
 
     console.log('notificationtype olusturuldu:', notificationtype)
 
+  // Türkiye ülke kaydını oluştur
+  console.log('🏳️ Türkiye ülke kaydı oluşturuluyor...')
+  const turkey = await prisma.country.upsert({
+    where: { code: 'TR' },
+    update: { name: 'Türkiye', phoneCode: '+90' },
+    create: {
+      name: 'Türkiye',
+      code: 'TR',
+      phoneCode: '+90',
+    },
+  })
   
+  console.log(`✅ Türkiye ülke kaydı oluşturuldu. ID: ${turkey.id}`)
+  
+  // İlleri oluştur
+  console.log('🏙️ Türkiye illeri ekleniyor...')
+  const cityIdMap: Record<string, string> = {} // İl adı -> ID eşleşmesini tutacak bir nesne
+  
+  for (const cityName of turkishCities) {
+    const city = await prisma.city.upsert({
+      where: { 
+        name_countryId: {
+          name: cityName,
+          countryId: turkey.id
+        }
+      },
+      update: {},
+      create: {
+        name: cityName,
+        countryId: turkey.id,
+      },
+    })
+    
+    // İl ID'sini kaydedelim
+    cityIdMap[cityName] = city.id
+    console.log(`✅ ${cityName} ili eklendi. ID: ${city.id}`)
+  }
+  
+  // İlçeleri oluştur
+  console.log('🏙️ İlçeler ekleniyor...')
+  
+  for (const [cityName, districts] of Object.entries(cityDistricts)) {
+    const cityId = cityIdMap[cityName]
+    
+    if (!cityId) {
+      console.log(`⚠️ ${cityName} için ID bulunamadı, ilçeler eklenemedi.`)
+      continue
+    }
+    
+    for (const districtName of districts) {
+      const district = await prisma.district.upsert({
+        where: {
+          name_cityId: {
+            name: districtName,
+            cityId: cityId
+          }
+        },
+        update: {},
+        create: {
+          name: districtName,
+          cityId: cityId,
+        },
+      })
+      
+      console.log(`✅ ${cityName} - ${districtName} ilçesi eklendi. ID: ${district.id}`)
+    }
+  }
+  
+  console.log('✅ Tüm coğrafi veriler başarıyla eklendi!')
 }
 
 main()

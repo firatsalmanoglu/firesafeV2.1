@@ -14,6 +14,7 @@ import {
   Prisma,
   UserRole,
   OfferRequests,
+  OfferStatus
 } from "@prisma/client";
 import Image from "next/image";
 import Link from "next/link";
@@ -39,13 +40,16 @@ const calculateTotalAmount = (offerSubs: { unitPrice: Prisma.Decimal; size: Pris
 
 const columns = [
   {
-    header: "Teklif ID",
-    accessor: "id",
-    className: "hidden md:table-cell",
+    header: "No",
+    accessor: "rowNumber",
   },
   {
     header: "Teklif Veren",
-    accessor: "info",
+    accessor: "creator",
+  },
+  {
+    header: "Müşteri",
+    accessor: "recipient",
   },
   {
     header: "Teklif Tarihi",
@@ -53,24 +57,21 @@ const columns = [
     className: "hidden md:table-cell",
   },
   {
-    header: "Müşteri",
-    accessor: "info",
+    header: "Geçerlilik",
+    accessor: "validityDate",
     className: "hidden md:table-cell",
   },
   {
-    header: "Teklif Tutarı",
+    header: "Tutar",
     accessor: "amount",
-    className: "hidden md:table-cell",
   },
   {
-    header: "Durumu",
+    header: "Durum",
     accessor: "status",
-    className: "hidden md:table-cell",
   },
   {
     header: "Eylemler",
     accessor: "action",
-    className: "hidden md:table-cell",
   },
 ];
 
@@ -133,59 +134,6 @@ const OfferListPage = async ({
 
   const currentUserInstitutionId = currentUser?.institutionId;
 
-  const renderRow = (
-    item: OfferList,
-    userRole: UserRole,
-    userInstitutionId: string | null | undefined
-  ) => (
-    <tr
-      key={item.id}
-      className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
-    >
-      <td className="hidden md:table-cell">{item.id}</td>
-      <td className="flex items-center gap-4 p-4">
-        <div className="flex flex-col">
-          <h3 className="font-semibold">{item.creatorIns.name}</h3>
-          <p className="text-xs text-gray-500">
-            {item.creator.name}
-          </p>
-        </div>
-      </td>
-      <td className="hidden md:table-cell">
-        {item.offerDate.toLocaleDateString()}
-      </td>
-      <td className="flex items-center gap-4 p-4">
-        <div className="flex flex-col">
-          <h3 className="font-semibold">{item.recipientIns.name}</h3>
-          <p className="text-xs text-gray-500">
-            {item.recipient.name}
-          </p>
-        </div>
-      </td>
-      <td className="hidden md:table-cell">
-        {calculateTotalAmount(item.OfferSub).toLocaleString("tr-TR", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })}
-      </td>
-      <td className="hidden md:table-cell">{item.status}</td>
-      <td>
-        <div className="flex items-center gap-2">
-          {canViewOffer(userRole, item.creatorInsId, item.recipientInsId, userInstitutionId) && (
-            <Link href={`/list/offers/${item.id}`}>
-              <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaPurple">
-                <Image src="/view.png" alt="" width={24} height={24} />
-              </button>
-            </Link>
-          )}
-          {canDeleteOffer(userRole, item.creatorInsId, userInstitutionId) && (
-            <FormModal table="offer" type="delete" id={item.id} />
-          )}
-        </div>
-      </td>
-    </tr>
-  );
-
   const { page, ...queryParams } = searchParams;
   const p = page ? parseInt(page) : 1;
 
@@ -232,7 +180,6 @@ const OfferListPage = async ({
               query.creatorInsId = creatorInstId;
             }
             break;
-          // Yeni case burada eklenecek
           case "institutionFilter":
             const institutionId = value;
             if (institutionId) {
@@ -242,15 +189,12 @@ const OfferListPage = async ({
               ];
             }
             break;
-
           case "requestId":
             const requestId = value;
             if (requestId) {
-              query.requestId = requestId;  // veya ilişkiye göre uygun alanı kullanın
+              query.requestId = requestId;
             }
             break;
-
-
           case "search":
             query.details = { contains: value, mode: "insensitive" };
             break;
@@ -272,13 +216,115 @@ const OfferListPage = async ({
       },
       take: ITEM_PER_PAGE,
       skip: ITEM_PER_PAGE * (p - 1),
+      orderBy: [{ status: 'asc' }, { offerDate: 'desc' }]
     }),
     prisma.offerCards.count({ where: query }),
   ]);
 
+  const renderRow = (item: OfferList) => {
+    // Veri dizisindeki indeksi bulma
+    const index = data.findIndex(d => d.id === item.id);
+    // Sayfa ve veri sayısına göre sıra numarası hesaplama
+    const rowNumber = (p - 1) * ITEM_PER_PAGE + index + 1;
+    
+    // Tarih formatını düzenleme
+    const formatDate = (date: Date) => {
+      return date.toLocaleDateString('tr-TR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+    };
+    
+    // Toplam tutar hesaplama
+    const totalAmount = calculateTotalAmount(item.OfferSub);
+    
+    // Duruma göre renk belirleme
+    const getStatusClass = (status: OfferStatus) => {
+      switch(status) {
+        case 'Onaylandi':
+          return 'bg-green-100 text-green-800';
+        case 'Red':
+          return 'bg-red-100 text-red-800';
+        case 'Beklemede':
+          return 'bg-yellow-100 text-yellow-800';
+        default:
+          return 'bg-gray-100 text-gray-800';
+      }
+    };
+    
+    // Teklifin geçerlilik durumunu kontrol etme
+    const isOfferExpired = () => {
+      const today = new Date();
+      return item.validityDate < today && item.status === 'Beklemede';
+    };
+    
+    return (
+      <tr
+        key={item.id}
+        className={`border-b border-gray-200 text-sm hover:bg-lamaPurpleLight ${
+          isOfferExpired() ? 'bg-orange-50' : 'even:bg-slate-50'
+        }`}
+      >
+        <td className="p-4">{rowNumber}</td>
+        <td className="p-4">
+          <div className="flex flex-col">
+            <h3 className="font-semibold">{item.creatorIns.name}</h3>
+            <p className="text-xs text-gray-500">{item.creator.name}</p>
+          </div>
+        </td>
+        <td className="p-4">
+          <div className="flex flex-col">
+            <h3 className="font-semibold">{item.recipientIns.name}</h3>
+            <p className="text-xs text-gray-500">{item.recipient.name}</p>
+          </div>
+        </td>
+        <td className="hidden md:table-cell p-4">{formatDate(item.offerDate)}</td>
+        <td className="hidden md:table-cell p-4">
+          <span className={isOfferExpired() ? 'text-red-600 font-medium' : ''}>
+            {formatDate(item.validityDate)}
+          </span>
+          {isOfferExpired() && (
+            <span className="block text-xs text-red-600">Süresi doldu</span>
+          )}
+        </td>
+        <td className="p-4">
+          <span className="font-medium">
+            {totalAmount.toLocaleString("tr-TR", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })} ₺
+          </span>
+          {item.paymentTerm && (
+            <p className="text-xs text-gray-500">{item.paymentTerm.name}</p>
+          )}
+        </td>
+        <td className="p-4">
+          <span className={`px-2 py-1 rounded-full text-xs ${getStatusClass(item.status)}`}>
+            {item.status}
+          </span>
+        </td>
+        <td className="p-4">
+          <div className="flex items-center gap-2">
+            {canViewOffer(currentUserRole, item.creatorInsId, item.recipientInsId, currentUserInstitutionId) && (
+              <Link href={`/list/offers/${item.id}`}>
+                <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaPurple" title="Görüntüle">
+                  <Image src="/view.png" alt="" width={24} height={24} />
+                </button>
+              </Link>
+            )}
+            {canDeleteOffer(currentUserRole, item.creatorInsId, currentUserInstitutionId) && (
+              <FormModal table="offer" type="delete" id={item.id} />
+            )}
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
   return (
     <div className="bg-white p-4 rounded-md flex-1 m-4 mt-0">
-      <div className="flex item-center justify-between">
+      <div className="flex item-center justify-between mb-4">
         <h1 className="hidden md:block text-lg font-semibold">
           {currentUserRole === UserRole.ADMIN
             ? 'Tüm Teklifler'
@@ -290,21 +336,21 @@ const OfferListPage = async ({
           <TableSearch />
           <div className="flex items-center gap-4 self-end">
             {currentUserRole === UserRole.ADMIN && (
-              <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
+              <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow" title="Filtrele">
                 <Image src="/filter.png" alt="" width={14} height={14} />
               </button>
             )}
-            <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
+            <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow" title="Sırala">
               <Image src="/sort.png" alt="" width={14} height={14} />
             </button>
           </div>
         </div>
       </div>
 
-      <div className="">
+      <div className="overflow-x-auto">
         <Table
           columns={columns}
-          renderRow={(item) => renderRow(item, currentUserRole, currentUserInstitutionId)}
+          renderRow={renderRow}
           data={data}
         />
       </div>

@@ -39,6 +39,10 @@ interface PageProps {
 
 const columns = [
   {
+    header: "No",
+    accessor: "rowNumber",
+  },
+  {
     header: "Seri No",
     accessor: "serialNumber",
     className: "hidden md:table-cell",
@@ -134,51 +138,60 @@ const DeviceListPage = ({ searchParams }: PageProps) => {
 
   const page = searchParams?.page ? parseInt(searchParams.page) : 1;
 
-  const renderRow = (
-    item: DeviceWithRelations,
-    userRole: UserRole | null,
-    userId: string | null
-  ) => (
-    <tr
-      key={item.id}
-      className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
-    >
-      <td className="hidden md:table-cell">{item.serialNumber}</td>
-      <td className="flex items-center gap-4 p-4">
-        <Image
-          src={item.photo || "/noAvatar.png"}
-          alt=""
-          width={40}
-          height={40}
-          className="md:hidden xl:block w-10 h-10 rounded-full object-cover"
-        />
-        <div className="flex flex-col">
-          <h3 className="font-semibold">{item.type.name}</h3>
-          <p className="text-xs text-gray-500">{item.ownerIns.name}</p>
-          <p className="text-xs text-gray-500">{item.owner.name}</p>
-        </div>
-      </td>
-      <td className="hidden md:table-cell">{item.feature.name}</td>
-      <td className="hidden md:table-cell">
-        {new Date(item.lastControlDate).toLocaleDateString()}
-      </td>
-      <td className="hidden md:table-cell">{item.currentStatus}</td>
-      <td>
-        <div className="flex items-center gap-2">
-          {canViewDevices(userRole, item.ownerId, item.providerId, userId) && (
-            <Link href={`/list/devices/${item.id}`}>
-              <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaPurple">
-                <Image src="/view.png" alt="" width={24} height={24} />
-              </button>
-            </Link>
-          )}
-          {canDeleteDevice(userRole, item.ownerId, userId) && (
-            <FormModal table="device" type="delete" id={item.id} />
-          )}
-        </div>
-      </td>
-    </tr>
-  );
+  const renderRow = (item: DeviceWithRelations) => {
+    // Cihaz için sıra numarası hesaplama
+    const index = data.findIndex(d => d.id === item.id);
+    const rowNumber = (page - 1) * 10 + index + 1;
+    
+    return (
+      <tr
+        key={item.id}
+        className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
+      >
+        <td>{rowNumber}</td>
+        <td className="hidden md:table-cell">{item.serialNumber}</td>
+        <td className="flex items-center gap-4 p-4">
+          <Image
+            src={item.photo || "/noAvatar.png"}
+            alt=""
+            width={40}
+            height={40}
+            className="md:hidden xl:block w-10 h-10 rounded-full object-cover"
+          />
+          <div className="flex flex-col">
+            <h3 className="font-semibold">{item.type.name}</h3>
+            <p className="text-xs text-gray-500">{item.ownerIns.name}</p>
+            <p className="text-xs text-gray-500">{item.owner.name}</p>
+          </div>
+        </td>
+        <td className="hidden md:table-cell">{item.feature.name}</td>
+        <td className="hidden md:table-cell">
+          {new Date(item.lastControlDate).toLocaleDateString()}
+        </td>
+        <td className="hidden md:table-cell">
+          <span className={`px-2 py-1 rounded-full text-xs ${
+            item.currentStatus === 'Aktif' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+          }`}>
+            {item.currentStatus}
+          </span>
+        </td>
+        <td>
+          <div className="flex items-center gap-2">
+            {canViewDevices(currentUserRole, item.ownerId, item.providerId, currentUserId) && (
+              <Link href={`/list/devices/${item.id}`}>
+                <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaPurple">
+                  <Image src="/view.png" alt="" width={24} height={24} />
+                </button>
+              </Link>
+            )}
+            {canDeleteDevice(currentUserRole, item.ownerId, currentUserId) && (
+              <FormModal table="device" type="delete" id={item.id} />
+            )}
+          </div>
+        </td>
+      </tr>
+    );
+  };
 
   useEffect(() => {
     fetchDevices();
@@ -249,10 +262,10 @@ const DeviceListPage = ({ searchParams }: PageProps) => {
         </div>
       </div>
 
-      <div className="">
+      <div className="overflow-x-auto">
         <Table
           columns={columns}
-          renderRow={(item) => renderRow(item, currentUserRole, currentUserId)}
+          renderRow={renderRow}
           data={data}
         />
       </div>

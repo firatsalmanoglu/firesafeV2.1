@@ -56,8 +56,14 @@ const SingleInstitutionPage = async ({
   });
 
   const instId = id;
-  const inst: Institutions | null = await prisma.institutions.findUnique({
+  // Kurumu tüm ilişkili verileriyle (ülke, şehir, ilçe) birlikte getir
+  const inst = await prisma.institutions.findUnique({
     where: { id: instId },
+    include: {
+      country: true,
+      city: true,
+      district: true
+    }
   });
 
   if (!inst) {
@@ -89,6 +95,10 @@ const SingleInstitutionPage = async ({
                       email: inst.email,
                       phone: inst.phone,
                       registrationDate: inst.registrationDate.toISOString().split('T')[0],
+                      // Ülke, şehir ve ilçe bilgilerini de ekle
+                      countryId: inst.countryId,
+                      cityId: inst.cityId,
+                      districtId: inst.districtId,
                     }}
                     currentUserRole={currentUserRole}
                   />
@@ -111,6 +121,20 @@ const SingleInstitutionPage = async ({
                   <Image src="/mail.png" alt="" width={14} height={14} />
                   <span>{inst.email}</span>
                 </div>
+                
+                {/* Ülke, şehir, ilçe bilgilerini görüntüle (varsa) */}
+                {inst.country && (
+                  <div className="w-full md:w-1/3 lg:w-full 2xl:w-2/3 flex items-center gap-2">
+                    <Image src="/location.png" alt="" width={14} height={14} />
+                    <span>
+                      {[
+                        inst.country?.name,
+                        inst.city?.name,
+                        inst.district?.name
+                      ].filter(Boolean).join(', ')}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>

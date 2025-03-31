@@ -31,17 +31,21 @@ type MaintenanceList = MaintenanceCards & {
 
 const columns = [
   {
-    header: "Kayıt No",
-    accessor: "id",
+    header: "No",
+    accessor: "rowNumber",
   },
   {
-    header: "Cihaz Seri No",
-    accessor: "deviceSerialNumber",
-    className: "hidden md:table-cell",
+    header: "Cihaz",
+    accessor: "device",
   },
   {
     header: "Servis Sağlayıcı",
-    accessor: "info",
+    accessor: "provider",
+  },
+  {
+    header: "Müşteri",
+    accessor: "customer",
+    className: "hidden md:table-cell",
   },
   {
     header: "Bakım Tarihi",
@@ -49,13 +53,13 @@ const columns = [
     className: "hidden md:table-cell",
   },
   {
-    header: "Müşteri",
-    accessor: "info",
+    header: "Sonraki Bakım",
+    accessor: "nextMaintenanceDate",
+    className: "hidden md:table-cell",
   },
   {
     header: "Eylemler",
     accessor: "action",
-    className: "hidden md:table-cell",
   },
 ];
 
@@ -128,53 +132,6 @@ const MaintenanceListPage = async ({
 
   const currentUserInstitutionId = currentUser?.institutionId;
 
-  const renderRow = (
-    item: MaintenanceList,
-    userRole: UserRole,
-    userInstitutionId: string | null | undefined
-  ) => (
-    <tr
-      key={item.id}
-      className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
-    >
-      <td className="hidden md:table-cell">{item.id}</td>
-      <td className="hidden md:table-cell">{item.device.serialNumber}</td>
-      <td className="flex items-center gap-4 p-4">
-        <div className="flex flex-col">
-          <h3 className="font-semibold">{item.providerIns.name}</h3>
-          <p className="text-xs text-gray-500">
-            {item.provider.name}
-          </p>
-        </div>
-      </td>
-      <td className="hidden md:table-cell">
-        {item.maintenanceDate.toLocaleDateString()}
-      </td>
-      <td className="flex items-center gap-4 p-4">
-        <div className="flex flex-col">
-          <h3 className="font-semibold">{item.customerIns.name}</h3>
-          <p className="text-xs text-gray-500">
-            {item.customer.name}
-          </p>
-        </div>
-      </td>
-      <td>
-        <div className="flex items-center gap-2">
-          {canViewMaintenance(userRole, item.providerInsId, item.customerInsId, userInstitutionId) && (
-            <Link href={`/list/maintenances/${item.id}`}>
-              <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaPurple">
-                <Image src="/view.png" alt="" width={24} height={24} />
-              </button>
-            </Link>
-          )}
-          {canManageMaintenance(userRole, item.providerInsId, userInstitutionId) && (
-            <FormModal table="maintenance" type="delete" id={item.id} />
-          )}
-        </div>
-      </td>
-    </tr>
-  );
-
   const { page, ...queryParams } = searchParams;
   const p = page ? parseInt(page) : 1;
 
@@ -236,7 +193,6 @@ const MaintenanceListPage = async ({
               ];
             }
             break;
-
           case "search":
             query.details = { contains: value, mode: "insensitive" };
             break;
@@ -259,13 +215,92 @@ const MaintenanceListPage = async ({
       },
       take: ITEM_PER_PAGE,
       skip: ITEM_PER_PAGE * (p - 1),
+      orderBy: { maintenanceDate: 'desc' },
     }),
     prisma.maintenanceCards.count({ where: query }),
   ]);
 
+  const renderRow = (item: MaintenanceList) => {
+    // Veri dizisindeki indeksi bulma
+    const index = data.findIndex(d => d.id === item.id);
+    // Sayfa ve veri sayısına göre sıra numarası hesaplama
+    const rowNumber = (p - 1) * ITEM_PER_PAGE + index + 1;
+    
+    // Tarih formatını düzenleme
+    const formatDate = (date: Date) => {
+      return date.toLocaleDateString('tr-TR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+    };
+    
+    // Bakım zamanı kontrolü (zamanı geçmiş, yaklaşan, normal)
+    const getNextMaintenanceClass = () => {
+      const today = new Date();
+      const nextDate = new Date(item.nextMaintenanceDate);
+      const diffTime = nextDate.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays < 0) return 'bg-red-100 text-red-800'; // Zamanı geçmiş
+      if (diffDays <= 30) return 'bg-yellow-100 text-yellow-800'; // 30 gün içinde
+      return 'bg-green-100 text-green-800'; // Normal
+    };
+    
+    return (
+      <tr
+        key={item.id}
+        className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
+      >
+        <td className="p-4">{rowNumber}</td>
+        <td className="p-4">
+          <div className="flex flex-col">
+            <h3 className="font-semibold">{item.deviceType.name}</h3>
+            <p className="text-xs text-gray-500">{item.device.serialNumber}</p>
+            <p className="text-xs text-gray-500 md:hidden">{item.deviceFeature.name}</p>
+          </div>
+        </td>
+        <td className="p-4">
+          <div className="flex flex-col">
+            <h3 className="font-semibold">{item.providerIns.name}</h3>
+            <p className="text-xs text-gray-500">{item.provider.name}</p>
+          </div>
+        </td>
+        <td className="hidden md:table-cell p-4">
+          <div className="flex flex-col">
+            <h3 className="font-semibold">{item.customerIns.name}</h3>
+            <p className="text-xs text-gray-500">{item.customer.name}</p>
+          </div>
+        </td>
+        <td className="hidden md:table-cell p-4">
+          {formatDate(item.maintenanceDate)}
+        </td>
+        <td className="hidden md:table-cell p-4">
+          <span className={`px-2 py-1 rounded-full text-xs ${getNextMaintenanceClass()}`}>
+            {formatDate(item.nextMaintenanceDate)}
+          </span>
+        </td>
+        <td className="p-4">
+          <div className="flex items-center gap-2">
+            {canViewMaintenance(currentUserRole, item.providerInsId, item.customerInsId, currentUserInstitutionId) && (
+              <Link href={`/list/maintenances/${item.id}`}>
+                <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaPurple" title="Görüntüle">
+                  <Image src="/view.png" alt="" width={24} height={24} />
+                </button>
+              </Link>
+            )}
+            {canManageMaintenance(currentUserRole, item.providerInsId, currentUserInstitutionId) && (
+              <FormModal table="maintenance" type="delete" id={item.id} />
+            )}
+          </div>
+        </td>
+      </tr>
+    );
+  };
+
   return (
     <div className="bg-white p-4 rounded-md flex-1 m-4 mt-0">
-      <div className="flex item-center justify-between">
+      <div className="flex item-center justify-between mb-4">
         <h1 className="hidden md:block text-lg font-semibold">
           {currentUserRole === UserRole.ADMIN
             ? 'Tüm Bakımlar'
@@ -277,11 +312,11 @@ const MaintenanceListPage = async ({
           <TableSearch />
           <div className="flex items-center gap-4 self-end">
             {currentUserRole === UserRole.ADMIN && (
-              <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
+              <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow" title="Filtrele">
                 <Image src="/filter.png" alt="" width={14} height={14} />
               </button>
             )}
-            <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
+            <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow" title="Sırala">
               <Image src="/sort.png" alt="" width={14} height={14} />
             </button>
             {canCreateMaintenance(currentUserRole) && (
@@ -291,10 +326,10 @@ const MaintenanceListPage = async ({
         </div>
       </div>
 
-      <div className="">
+      <div className="overflow-x-auto">
         <Table
           columns={columns}
-          renderRow={(item) => renderRow(item, currentUserRole, currentUserInstitutionId)}
+          renderRow={renderRow}
           data={data}
         />
       </div>

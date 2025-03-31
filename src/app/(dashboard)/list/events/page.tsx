@@ -21,37 +21,35 @@ type EventList = Appointments & { creator: User } & {
 
 const columns = [
   {
-    header: "Randevu ID",
-    accessor: "id",
-    className: "hidden md:table-cell",
+    header: "No",
+    accessor: "rowNumber",
   },
   {
-    header: "Oluşturan Kullanıcı",
-    accessor: "info",
+    header: "Oluşturan",
+    accessor: "creator",
   },
   {
-    header: "Oluşturma Tarihi",
-    accessor: "create",
-    className: "hidden md:table-cell",
+    header: "İlgili Kişi",
+    accessor: "recipient",
   },
   {
-    header: "İlgili Kullanıcı",
-    accessor: "info",
-  },
-  {
-    header: "Başlangıç Tarihi",
+    header: "Başlangıç",
     accessor: "start",
     className: "hidden md:table-cell",
   },
   {
-    header: "Bitiş Tarihi",
+    header: "Bitiş",
     accessor: "end",
+    className: "hidden md:table-cell",
+  },
+  {
+    header: "Başlık",
+    accessor: "title",
     className: "hidden md:table-cell",
   },
   {
     header: "Eylemler",
     accessor: "action",
-    className: "hidden md:table-cell",
   },
 ];
 
@@ -145,66 +143,79 @@ const EventListPage = async ({
   const currentUserId = currentUser?.id;
   const currentUserInstitutionId = currentUser?.institutionId;
 
-  const renderRow = (
-    item: EventList,
-    userRole: UserRole,
-    userId: string | null | undefined,
-    userInstitutionId: string | null | undefined
-  ) => (
-    <tr
-      key={item.id}
-      className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
-    >
-      <td className="hidden md:table-cell">{item.id}</td>
-      <td className="flex items-center gap-4 p-4">
-        <div className="flex flex-col">
-          <h3 className="font-semibold">
-            {item.creator.name}
-          </h3>
-          <p className="text-xs text-gray-500">{item.creatorIns.name}</p>
-        </div>
-      </td>
-      <td className="hidden md:table-cell">{item.create.toLocaleDateString()}</td>
-      <td className="flex items-center gap-4 p-4">
-        <div className="flex flex-col">
-          <h3 className="font-semibold">
-            {item.recipient.name}
-          </h3>
-          <p className="text-xs text-gray-500">{item.recipientIns.name}</p>
-        </div>
-      </td>
-      <td className="hidden md:table-cell">{item.start.toLocaleDateString()}</td>
-      <td className="hidden md:table-cell">{item.end.toLocaleDateString()}</td>
-      <td>
-        <div className="flex items-center gap-2">
-          {canViewAppointment(
-            userRole,
-            item.creatorId,
-            item.creatorInsId,
-            item.recipientId,
-            item.recipientInsId,
-            userId,
-            userInstitutionId
-          ) && (
+  const renderRow = (item: EventList) => {
+    // Veri dizisindeki indeksi bulma
+    const index = data.findIndex(d => d.id === item.id);
+    // Sayfa ve veri sayısına göre sıra numarası hesaplama
+    const { page } = searchParams;
+    const p = page ? parseInt(page) : 1;
+    const rowNumber = (p - 1) * ITEM_PER_PAGE + index + 1;
+    
+    // Tarih formatını Türkçe olarak ayarlama
+    const formatDate = (date: Date) => {
+      return date.toLocaleDateString('tr-TR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
+    };
+    
+    return (
+      <tr
+        key={item.id}
+        className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
+      >
+        <td className="p-4">{rowNumber}</td>
+        <td className="p-4">
+          <div className="flex flex-col">
+            <h3 className="font-semibold">{item.creator.name}</h3>
+            <p className="text-xs text-gray-500">{item.creatorIns.name}</p>
+          </div>
+        </td>
+        <td className="p-4">
+          <div className="flex flex-col">
+            <h3 className="font-semibold">{item.recipient.name}</h3>
+            <p className="text-xs text-gray-500">{item.recipientIns.name}</p>
+          </div>
+        </td>
+        <td className="hidden md:table-cell p-4">{formatDate(item.start)}</td>
+        <td className="hidden md:table-cell p-4">{formatDate(item.end)}</td>
+        <td className="hidden md:table-cell p-4">
+          <span className="line-clamp-1" title={item.tittle}>
+            {item.tittle}
+          </span>
+        </td>
+        <td className="p-4">
+          <div className="flex items-center gap-2">
+            {canViewAppointment(
+              currentUserRole,
+              item.creatorId,
+              item.creatorInsId,
+              item.recipientId,
+              item.recipientInsId,
+              currentUserId,
+              currentUserInstitutionId
+            ) && (
               <Link href={`/list/events/${item.id}`}>
-                <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaPurple">
+                <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaPurple" title="Görüntüle">
                   <Image src="/view.png" alt="" width={24} height={24} />
                 </button>
               </Link>
             )}
-          {canManageAppointment(
-            userRole,
-            item.creatorId,
-            item.creatorInsId,
-            userId,
-            userInstitutionId
-          ) && (
+            {canManageAppointment(
+              currentUserRole,
+              item.creatorId,
+              item.creatorInsId,
+              currentUserId,
+              currentUserInstitutionId
+            ) && (
               <FormModal table="event" type="delete" id={item.id} />
             )}
-        </div>
-      </td>
-    </tr>
-  );
+          </div>
+        </td>
+      </tr>
+    );
+  };
 
   const { page, ...queryParams } = searchParams;
   const p = page ? parseInt(page) : 1;
@@ -272,7 +283,7 @@ const EventListPage = async ({
 
   return (
     <div className="bg-white p-4 rounded-md flex-1 m-4 mt-0">
-      <div className="flex item-center justify-between">
+      <div className="flex item-center justify-between mb-4">
         <h1 className="hidden md:block text-lg font-semibold">
           {currentUserRole === UserRole.ADMIN
             ? 'Tüm Randevular'
@@ -289,11 +300,11 @@ const EventListPage = async ({
           <TableSearch />
           <div className="flex items-center gap-4 self-end">
             {currentUserRole === UserRole.ADMIN && (
-              <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
+              <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow" title="Filtrele">
                 <Image src="/filter.png" alt="" width={14} height={14} />
               </button>
             )}
-            <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
+            <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow" title="Sırala">
               <Image src="/sort.png" alt="" width={14} height={14} />
             </button>
             {canCreateAppointment(currentUserRole) && (
@@ -308,10 +319,10 @@ const EventListPage = async ({
         </div>
       </div>
 
-      <div className="">
+      <div className="overflow-x-auto">
         <Table
           columns={columns}
-          renderRow={(item) => renderRow(item, currentUserRole, currentUserId, currentUserInstitutionId)}
+          renderRow={(item) => renderRow(item)}
           data={data}
         />
       </div>

@@ -1,5 +1,70 @@
 import prisma from "@/lib/prisma";
 import { NextResponse } from "next/server";
+import { headers } from "next/headers";
+
+// Log kaydı oluşturmak için yardımcı fonksiyon
+async function createLogEntry(userId: string, actionType: string, tableName: string, requestHeaders: Headers) {
+    try {
+        console.log(`Log oluşturuluyor: UserId=${userId}, Action=${actionType}, Table=${tableName}`);
+        
+        // Kullanıcının var olup olmadığını kontrol et
+        const userExists = await prisma.user.findUnique({
+            where: { id: userId }
+        });
+        
+        if (!userExists) {
+            console.error(`User ID bulunamadı: ${userId}`);
+            return false;
+        }
+        
+        // Action tablosunda ilgili kayıt var mı, yoksa oluştur
+        let action = await prisma.actions.findFirst({
+            where: { name: actionType }
+        });
+        
+        if (!action) {
+            console.log(`Yeni Actions kaydı oluşturuluyor: ${actionType}`);
+            action = await prisma.actions.create({
+                data: { name: actionType }
+            });
+        }
+        
+        // Table tablosunda ilgili kayıt var mı, yoksa oluştur
+        let table = await prisma.tables.findFirst({
+            where: { name: tableName }
+        });
+        
+        if (!table) {
+            console.log(`Yeni Tables kaydı oluşturuluyor: ${tableName}`);
+            table = await prisma.tables.create({
+                data: { name: tableName }
+            });
+        }
+        
+        // IP adresini al
+        const ip = requestHeaders.get('x-forwarded-for') || 
+                  requestHeaders.get('x-real-ip') || 
+                  '127.0.0.1';
+        
+        console.log(`Log verileri: ActionId=${action.id}, TableId=${table.id}, IP=${ip}`);
+        
+        // Log kaydını oluştur
+        const log = await prisma.logs.create({
+            data: {
+                userId: userId,
+                actionId: action.id,
+                tableId: table.id,
+                IP: ip
+            }
+        });
+        
+        console.log(`Log kaydı oluşturuldu: ${log.id}`);
+        return true;
+    } catch (error) {
+        console.error("[LOG_CREATION_ERROR]", error);
+        return false;
+    }
+}
 
 export async function GET(request: Request) {
     try {
@@ -86,6 +151,10 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
     try {
         const body = await request.json();
+        const headersList = headers();
+        
+        // Eğer userId yoksa veya geçersizse, ilk admin kullanıcıyı bul
+        const userId = body.userId;
         
         let registrationDate = new Date();
         
@@ -121,9 +190,35 @@ export async function POST(request: Request) {
             institutionData.district = { connect: { id: body.districtId } };
         }
 
+        // Kurum oluştur
         const institution = await prisma.institutions.create({
             data: institutionData,
         });
+
+        // userId yoksa veya geçersizse, bir admin kullanıcı bul
+        if (!userId) {
+            console.log("userId bulunamadı, admin kullanıcısı aranıyor...");
+            const adminUser = await prisma.user.findFirst({
+                where: { role: "ADMIN" }
+            });
+            
+            if (adminUser) {
+                console.log(`Admin kullanıcısı bulundu: ${adminUser.id}`);
+                await createLogEntry(adminUser.id, "EKLE", "Institutions", headersList);
+            } else {
+                console.log("Admin kullanıcısı bulunamadı, herhangi bir kullanıcı aranıyor...");
+                const anyUser = await prisma.user.findFirst();
+                if (anyUser) {
+                    console.log(`Kullanıcı bulundu: ${anyUser.id}`);
+                    await createLogEntry(anyUser.id, "EKLE", "Institutions", headersList);
+                } else {
+                    console.log("Hiç kullanıcı bulunamadı, log kaydı oluşturulamadı");
+                }
+            }
+        } else {
+            // Kullanıcı ID'si var, doğrudan kullan
+            await createLogEntry(userId, "EKLE", "Institutions", headersList);
+        }
 
         return NextResponse.json(institution);
     } catch (error) {
@@ -138,6 +233,10 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
     try {
         const body = await request.json();
+        const headersList = headers();
+        
+        // Kullanıcı kimliğini body'den alıyoruz
+        const userId = body.userId;
         
         if (!body.id) {
             return new NextResponse("Kurum ID'si gerekli", { status: 400 });
@@ -163,10 +262,10 @@ export async function PUT(request: Request) {
 
         // Temel veri hazırlığı 
         const updateData: any = {
-            name: body.name,
-            address: body.address,
-            email: body.email,
-            phone: body.phone,
+            name: body.name || existingInstitution.name,
+            address: body.address || existingInstitution.address,
+            email: body.email || existingInstitution.email,
+            phone: body.phone || existingInstitution.phone,
             registrationDate: registrationDate,
         };
 
@@ -196,6 +295,31 @@ export async function PUT(request: Request) {
             data: updateData,
         });
 
+        // userId yoksa veya geçersizse, bir admin kullanıcı bul
+        if (!userId) {
+            console.log("userId bulunamadı, admin kullanıcısı aranıyor...");
+            const adminUser = await prisma.user.findFirst({
+                where: { role: "ADMIN" }
+            });
+            
+            if (adminUser) {
+                console.log(`Admin kullanıcısı bulundu: ${adminUser.id}`);
+                await createLogEntry(adminUser.id, "GÜNCELLE", "Institutions", headersList);
+            } else {
+                console.log("Admin kullanıcısı bulunamadı, herhangi bir kullanıcı aranıyor...");
+                const anyUser = await prisma.user.findFirst();
+                if (anyUser) {
+                    console.log(`Kullanıcı bulundu: ${anyUser.id}`);
+                    await createLogEntry(anyUser.id, "GÜNCELLE", "Institutions", headersList);
+                } else {
+                    console.log("Hiç kullanıcı bulunamadı, log kaydı oluşturulamadı");
+                }
+            }
+        } else {
+            // Kullanıcı ID'si var, doğrudan kullan
+            await createLogEntry(userId, "GÜNCELLE", "Institutions", headersList);
+        }
+
         return NextResponse.json(institution);
     } catch (error) {
         console.log("[INSTITUTIONS_PUT]", error);
@@ -210,6 +334,8 @@ export async function DELETE(request: Request) {
     try {
         const { searchParams } = new URL(request.url);
         const id = searchParams.get('id');
+        const userId = searchParams.get('userId');
+        const headersList = headers();
 
         if (!id) {
             return new NextResponse(JSON.stringify({
@@ -238,6 +364,31 @@ export async function DELETE(request: Request) {
         await prisma.institutions.delete({
             where: { id }
         });
+
+        // userId yoksa veya geçersizse, bir admin kullanıcı bul
+        if (!userId) {
+            console.log("userId bulunamadı, admin kullanıcısı aranıyor...");
+            const adminUser = await prisma.user.findFirst({
+                where: { role: "ADMIN" }
+            });
+            
+            if (adminUser) {
+                console.log(`Admin kullanıcısı bulundu: ${adminUser.id}`);
+                await createLogEntry(adminUser.id, "SİL", "Institutions", headersList);
+            } else {
+                console.log("Admin kullanıcısı bulunamadı, herhangi bir kullanıcı aranıyor...");
+                const anyUser = await prisma.user.findFirst();
+                if (anyUser) {
+                    console.log(`Kullanıcı bulundu: ${anyUser.id}`);
+                    await createLogEntry(anyUser.id, "SİL", "Institutions", headersList);
+                } else {
+                    console.log("Hiç kullanıcı bulunamadı, log kaydı oluşturulamadı");
+                }
+            }
+        } else {
+            // Kullanıcı ID'si var, doğrudan kullan
+            await createLogEntry(userId, "SİL", "Institutions", headersList);
+        }
 
         // Başarılı silme durumunda
         return new NextResponse(JSON.stringify({

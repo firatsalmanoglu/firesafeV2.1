@@ -2,6 +2,7 @@ import Announcements from "@/components/Announcements"
 import CustomerExtingChart from "@/components/CustomerExtingChart"
 import CustomerExtingChartContainer from "@/components/CustomerExtingChartContainer"
 import CustomerLastMaintChart from "@/components/CustomerLastMaintChart"
+import CustomerLastMaintChartContainer from "@/components/CustomerLastMaintChartContainer"
 import EventCalendar from "@/components/EventCalendar"
 import UserCard from "@/components/UserCard"
 
@@ -27,7 +28,7 @@ const CustomerPage = () => {
                 </div>
                     {/* LAST MAİNT CHART CHART */}
                 <div className='w-full lg:w-2/3 h-[450px]'>
-                    <CustomerLastMaintChart />
+                    <CustomerLastMaintChartContainer  />
                 </div>
 
             </div>

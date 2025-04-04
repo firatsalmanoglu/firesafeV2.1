@@ -4,19 +4,26 @@ import CustomerExtingChartContainer from "@/components/CustomerExtingChartContai
 import CustomerLastMaintChart from "@/components/CustomerLastMaintChart";
 import EventCalendar from "@/components/EventCalendar";
 import UserCard from "@/components/UserCard";
+import { auth } from "@/auth";
+import CustomerLastMaintChartContainer from "@/components/CustomerLastMaintChartContainer";
 
-const LowCustomerPage = () => {
+const LowCustomerPage = async ({
+  searchParams,
+}: {
+  searchParams: { [key: string]: string | undefined };
+}) => {
+  const session = await auth();
+  
   return (
     <div className="p-4 flex gap-4 flex-col md:flex-row">
       {/* LEFT */}
       <div className="w-full lg:w-2/3">
         {/* USER CARDS */}
         <div className="flex gap-4 justify-between flex-wrap">
-              <UserCard type="cihazlarim" link="/list/devices"/>
-              <UserCard type="bakimiyaklasan" link="/list/devices"/>
-              <UserCard type="tekliflerim" link="/list/offers"/>
-              <UserCard type="bakimlarim" link="/list/maintenances"/>
-          
+          <UserCard type="cihazlarim" link="/list/devices"/>
+          <UserCard type="bakimiyaklasan" link="/list/devices"/>
+          <UserCard type="tekliflerim" link="/list/offers"/>
+          <UserCard type="bakimlarim" link="/list/maintenances"/>
         </div>
 
         {/* MIDDLE CHARTS */}
@@ -27,7 +34,7 @@ const LowCustomerPage = () => {
           </div>
           {/* LAST MAİNT CHART CHART */}
           <div className="w-full lg:w-2/3 h-[450px]">
-            <CustomerLastMaintChart />
+            <CustomerLastMaintChartContainer />
           </div>
         </div>
       </div>

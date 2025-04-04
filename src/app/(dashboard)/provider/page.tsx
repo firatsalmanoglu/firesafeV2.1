@@ -5,10 +5,11 @@ import ProviderMaintChart from "@/components/ProviderMaintChart"
 import EventCalendar from "@/components/EventCalendar"
 import Announcements from "@/components/Announcements"
 import ProviderOfferChartContainer from "@/components/ProviderOfferChartContainer"
+import { auth } from "@/auth"
 
-
-
-const ProviderPage = () => {
+const ProviderPage = async () => {
+    const session = await auth();
+    
     return (
         <div className='p-4 flex gap-4 flex-col md:flex-row'>
             {/* LEFT */}

@@ -49,6 +49,7 @@ const DeviceForm = ({ type, data, currentUserId }: DeviceFormProps) => {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [ownerInfo, setOwnerInfo] = useState<any>(null);
+  const [generatedSerialNumber, setGeneratedSerialNumber] = useState<string>("");
 
   const {
     register,
@@ -97,11 +98,68 @@ const DeviceForm = ({ type, data, currentUserId }: DeviceFormProps) => {
       const data = await response.json();
       setOwnerInfo(data);
       setValue("ownerInstId", data.institutionId);
+      
+      // Sahip kurum bilgisi alındıktan sonra seri numarası oluştur
+      if (type === "create" && data.institution?.name) {
+        generateSerialNumber(data.institution);
+      }
+      
       toast.success('Cihaz sahibi bilgileri yüklendi');
     } catch (error) {
       console.error("Owner bilgisi alınamadı:", error);
       toast.error('Cihaz sahibi bilgileri alınamadı');
     }
+  };
+
+  // Seri numarası oluşturma fonksiyonu
+  const generateSerialNumber = async (institution: any) => {
+    try {
+      if (!institution || !institution.name) {
+        toast.error('Kurumun adı alınamadı, seri no oluşturulamıyor');
+        return;
+      }
+
+      // Kurumun adının baş harflerini al
+      const initials = getInstitutionInitials(institution.name);
+      
+      // Kuruma ait cihazları çek ve sayısını öğren
+      const response = await fetch(`/api/devices/count-by-institution/${institution.id}`);
+      if (!response.ok) {
+        throw new Error('Kurum cihaz sayısı alınamadı');
+      }
+      
+      const { count } = await response.json();
+      
+      // Yeni numara oluştur (sayıyı 4 haneli yapar, örn: 0001, 0012, 0123)
+      const newNumber = (count + 1).toString().padStart(4, '0');
+      
+      // Formata uygun seri numarası oluştur: EU0001
+      const serialNumber = `${initials}${newNumber}`;
+      
+      // Oluşturulan seri numarasını state'e ve forma ata
+      setGeneratedSerialNumber(serialNumber);
+      setValue("serialNumber", serialNumber);
+      
+    } catch (error) {
+      console.error("Seri numarası oluşturulamadı:", error);
+      toast.error('Seri numarası oluşturulamadı');
+    }
+  };
+
+  // Kurum adından baş harfleri alma fonksiyonu
+  const getInstitutionInitials = (institutionName: string) => {
+    if (!institutionName) return "XX";
+    
+    // Tüm boşluklara göre kelimeler bölünür
+    const words = institutionName.split(' ');
+    
+    // Her kelimenin ilk harfi alınır
+    let initials = words.map(word => word.charAt(0).toUpperCase()).join('');
+    
+    // En fazla ilk 2 harfi al (çok uzun kurum isimleri için)
+    initials = initials.substring(0, 2);
+    
+    return initials;
   };
 
   const onSubmit = async (formData: Inputs) => {
@@ -202,12 +260,24 @@ const DeviceForm = ({ type, data, currentUserId }: DeviceFormProps) => {
       <div className="space-y-4">
         <h2 className="text-sm font-medium text-gray-500">Temel Cihaz Bilgileri</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <InputField
-            label="Seri No"
-            name="serialNumber"
-            register={register}
-            error={errors?.serialNumber}
-          />
+          <div className="flex flex-col gap-2">
+            <label className="text-xs text-gray-500">Seri No</label>
+            <input
+              type="text"
+              {...register("serialNumber")}
+              className="ring-[1.5px] ring-gray-300 p-2 rounded-md text-sm w-full"
+              readOnly={type === "create"} // Yeni oluşturma durumunda sadece okunabilir
+              placeholder={type === "create" ? "Otomatik oluşturulacak..." : ""}
+            />
+            {errors?.serialNumber && (
+              <span className="text-xs text-red-500">{errors.serialNumber.message}</span>
+            )}
+            {type === "create" && generatedSerialNumber && (
+              <span className="text-xs text-green-600">
+                Kurum için otomatik oluşturulan seri no: {generatedSerialNumber}
+              </span>
+            )}
+          </div>
 
           <DeviceTypeSelect
             register={register}
@@ -369,4 +439,4 @@ const DeviceForm = ({ type, data, currentUserId }: DeviceFormProps) => {
   );
 };
 
-export default DeviceForm
+export default DeviceForm;

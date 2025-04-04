@@ -8,6 +8,7 @@ import CountChartContainer from "@/components/CountChartContainer";
 import OfferChartContainer from "@/components/OfferChartContainer";
 import EventCalendarContainer from "@/components/EventCalendarContainer";
 import { auth } from "@/auth";
+import LogChartContainer from "@/components/LogChartContainer";
 
 const AdminPage = async ({
   searchParams,
@@ -41,7 +42,7 @@ const AdminPage = async ({
 
         {/* BOTTOM CHARTS */}
         <div className="w-full h-[500px]">
-          <LogChart />
+          <LogChartContainer />
         </div>
       </div>
       {/* RİGHT */}

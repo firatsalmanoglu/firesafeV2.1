@@ -5,13 +5,15 @@ import FormModal from "@/components/FormModal";
 import Pagination from "@/components/Pagination";
 import Table from "@/components/Table";
 import TableSearch from "@/components/TableSearch";
-import { UserRole, Devices, DeviceTypes, DeviceFeatures, User, Institutions, IsgMembers } from "@prisma/client";
+import TableSort from "@/components/TableSort";
+import TableFilter from "@/components/TableFilter";
+import { UserRole, Devices, DeviceTypes, DeviceFeatures, User, Institutions, IsgMembers, DeviceStatus } from "@prisma/client";
 import Image from "next/image";
 import Link from "next/link";
 import dynamic from 'next/dynamic';
 import { Camera } from 'lucide-react';
 import { IoMdQrScanner } from "react-icons/io";
-
+import { FilterOption } from "@/components/TableFilter";
 
 const QRScanner = dynamic(() => import('@/components/QRScanner'), {
   ssr: false
@@ -25,6 +27,12 @@ type DeviceWithRelations = Devices & {
   isgMember: IsgMembers;
 };
 
+type SortOption = {
+  label: string;
+  field: string;
+  order: "asc" | "desc";
+};
+
 interface PageProps {
   searchParams: {
     page?: string;
@@ -33,6 +41,15 @@ interface PageProps {
     ownerId?: string;
     providerId?: string;
     ownerInstId?: string;
+    typeId?: string;
+    featureId?: string;
+    currentStatus?: string;
+    sort?: string;
+    order?: string;
+    lastControlDateFrom?: string;
+    lastControlDateTo?: string;
+    expirationDateFrom?: string;
+    expirationDateTo?: string;
     [key: string]: string | undefined;
   };
 }
@@ -135,8 +152,123 @@ const DeviceListPage = ({ searchParams }: PageProps) => {
   const [currentUserRole, setCurrentUserRole] = useState<UserRole | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [showScanner, setShowScanner] = useState(false);
+  const [deviceTypes, setDeviceTypes] = useState<{id: string, name: string}[]>([]);
+  const [deviceFeatures, setDeviceFeatures] = useState<{id: string, name: string}[]>([]);
+  const [institutions, setInstitutions] = useState<{id: string, name: string}[]>([]);
 
   const page = searchParams?.page ? parseInt(searchParams.page) : 1;
+  const sort = searchParams?.sort || 'serialNumber';
+  const order = searchParams?.order || 'asc';
+
+  // Sıralama seçenekleri
+  const sortOptions: SortOption[] = [
+    { label: "Seri No (A-Z)", field: "serialNumber", order: "asc" },
+    { label: "Seri No (Z-A)", field: "serialNumber", order: "desc" },
+    { label: "Cihaz Türü (A-Z)", field: "type", order: "asc" },
+    { label: "Cihaz Türü (Z-A)", field: "type", order: "desc" },
+    { label: "Son Kontrol (Yeni-Eski)", field: "lastControlDate", order: "desc" },
+    { label: "Son Kontrol (Eski-Yeni)", field: "lastControlDate", order: "asc" },
+    { label: "Sonraki Kontrol (Yakın-Uzak)", field: "nextControlDate", order: "asc" },
+    { label: "Sonraki Kontrol (Uzak-Yakın)", field: "nextControlDate", order: "desc" },
+    { label: "Kurum (A-Z)", field: "ownerIns", order: "asc" },
+    { label: "Kurum (Z-A)", field: "ownerIns", order: "desc" }
+  ];
+
+  useEffect(() => {
+    fetchDevices();
+    fetchFilterOptions();
+  }, [page, searchParams]);
+
+  const fetchDevices = async () => {
+    try {
+      // API isteği yapılırken tüm parametreleri gönder
+      let url = `/api/devices/my-devices?page=${page}`;
+      
+      if (searchParams.search) url += `&search=${searchParams.search}`;
+      if (searchParams.typeId) url += `&typeId=${searchParams.typeId}`;
+      if (searchParams.featureId) url += `&featureId=${searchParams.featureId}`;
+      if (searchParams.ownerInstId) url += `&ownerInstId=${searchParams.ownerInstId}`;
+      if (searchParams.currentStatus) url += `&currentStatus=${searchParams.currentStatus}`;
+      if (searchParams.lastControlDateFrom) url += `&lastControlDateFrom=${searchParams.lastControlDateFrom}`;
+      if (searchParams.lastControlDateTo) url += `&lastControlDateTo=${searchParams.lastControlDateTo}`;
+      if (searchParams.expirationDateFrom) url += `&expirationDateFrom=${searchParams.expirationDateFrom}`;
+      if (searchParams.expirationDateTo) url += `&expirationDateTo=${searchParams.expirationDateTo}`;
+      if (searchParams.sort) url += `&sort=${searchParams.sort}`;
+      if (searchParams.order) url += `&order=${searchParams.order}`;
+      
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error('Veri çekme hatası');
+      }
+      const result = await response.json();
+      setData(result.devices);
+      setCount(result.count);
+      setCurrentUserRole(result.currentUserRole);
+      setCurrentUserId(result.currentUserId);
+    } catch (error) {
+      console.error('Cihazlar yüklenirken hata:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchFilterOptions = async () => {
+    try {
+      const response = await fetch('/api/devices/filter-options');
+      if (!response.ok) {
+        throw new Error('Filtre seçenekleri alınamadı');
+      }
+      const result = await response.json();
+      setDeviceTypes(result.deviceTypes || []);
+      setDeviceFeatures(result.deviceFeatures || []);
+      setInstitutions(result.institutions || []);
+    } catch (error) {
+      console.error('Filtre seçenekleri yüklenirken hata:', error);
+    }
+  };
+
+  // Filtreleme seçenekleri
+  const filterOptions: FilterOption[] = [
+    {
+      type: "select",
+      label: "Cihaz Türü",
+      field: "typeId",
+      data: deviceTypes
+    },
+    {
+      type: "select",
+      label: "Cihaz Özelliği",
+      field: "featureId",
+      data: deviceFeatures
+    },
+    {
+      type: "select",
+      label: "Kurum",
+      field: "ownerInstId",
+      data: institutions
+    },
+    {
+      type: "status",
+      label: "Durumu",
+      field: "currentStatus",
+      options: [
+        { value: "Aktif", label: "Aktif" },
+        { value: "Pasif", label: "Pasif" }
+      ]
+    },
+    {
+      type: "dateRange",
+      label: "Son Kontrol Tarihi",
+      fieldFrom: "lastControlDateFrom",
+      fieldTo: "lastControlDateTo"
+    },
+    {
+      type: "dateRange",
+      label: "Son Kullanma Tarihi",
+      fieldFrom: "expirationDateFrom",
+      fieldTo: "expirationDateTo"
+    }
+  ];
 
   const renderRow = (item: DeviceWithRelations) => {
     // Cihaz için sıra numarası hesaplama
@@ -193,28 +325,6 @@ const DeviceListPage = ({ searchParams }: PageProps) => {
     );
   };
 
-  useEffect(() => {
-    fetchDevices();
-  }, [page, searchParams]);
-
-  const fetchDevices = async () => {
-    try {
-      const response = await fetch('/api/devices/my-devices');
-      if (!response.ok) {
-        throw new Error('Veri çekme hatası');
-      }
-      const result = await response.json();
-      setData(result.devices);
-      setCount(result.count);
-      setCurrentUserRole(result.currentUserRole);
-      setCurrentUserId(result.currentUserId);
-    } catch (error) {
-      console.error('Cihazlar yüklenirken hata:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   if (loading) {
     return <div className="flex justify-center items-center h-64">Yükleniyor...</div>;
   }
@@ -235,21 +345,15 @@ const DeviceListPage = ({ searchParams }: PageProps) => {
             <button
               onClick={() => setShowScanner(true)}
               className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaGreen"
+              title="QR Kod Tara"
             > 
-               <IoMdQrScanner />
-              <Camera size={16} color="white" />
+              <IoMdQrScanner size={16} color="white" />
             </button>
-            <Link href="/list/devices/qrcodes" className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaBlue">
-              <Image src="/qrcode1.png" alt="QR Kodları" width={24} height={24} />
+            <Link href="/list/devices/qrcodes" className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaBlue" title="QR Kodları">
+              <Image src="/qrcode1.png" alt="QR Kodları" width={18} height={18} />
             </Link>
-            {currentUserRole === UserRole.ADMIN && (
-              <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
-                <Image src="/filter.png" alt="" width={14} height={14} />
-              </button>
-            )}
-            <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
-              <Image src="/sort.png" alt="" width={14} height={14} />
-            </button>
+            <TableFilter options={filterOptions} />
+            <TableSort options={sortOptions} />
             {canCreateDevice(currentUserRole) && (
               <FormModal
                 table="device"

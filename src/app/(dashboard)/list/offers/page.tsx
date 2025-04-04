@@ -2,6 +2,8 @@ import FormModal from "@/components/FormModal";
 import Pagination from "@/components/Pagination";
 import Table from "@/components/Table";
 import TableSearch from "@/components/TableSearch";
+import TableSort from "@/components/TableSort";
+import TableFilter from "@/components/TableFilter";
 import { auth } from "@/auth";
 import prisma from "@/lib/prisma";
 import { ITEM_PER_PAGE } from "@/lib/settings";
@@ -18,6 +20,7 @@ import {
 } from "@prisma/client";
 import Image from "next/image";
 import Link from "next/link";
+import { FilterOption } from "@/components/TableFilter";
 
 type OfferList = OfferCards & {
   paymentTerm: PaymentTermTypes;
@@ -29,6 +32,13 @@ type OfferList = OfferCards & {
     unitPrice: Prisma.Decimal;
     size: Prisma.Decimal;
   }[];
+};
+
+// TableSort bileşeninin beklediği SortOption tipi
+type SortOption = {
+  label: string;
+  field: string;
+  order: "asc" | "desc";
 };
 
 const calculateTotalAmount = (offerSubs: { unitPrice: Prisma.Decimal; size: Prisma.Decimal }[]) => {
@@ -134,8 +144,13 @@ const OfferListPage = async ({
 
   const currentUserInstitutionId = currentUser?.institutionId;
 
-  const { page, ...queryParams } = searchParams;
+  // URL parametrelerini genişletilmiş şekilde al
+  const { page, sort, order, ...queryParams } = searchParams;
   const p = page ? parseInt(page) : 1;
+  
+  // Varsayılan olarak duruma göre artan ve tarihe göre azalan sıralama
+  const sortField = sort || 'status';
+  const sortOrder = order || 'asc';
 
   const query: Prisma.OfferCardsWhereInput = {};
 
@@ -168,26 +183,25 @@ const OfferListPage = async ({
               query.creatorId = creatorId;
             }
             break;
-          case "recipientInstId":
-            const recipientInstId = value;
-            if (recipientInstId) {
-              query.recipientInsId = recipientInstId;
+          case "recipientInsId":
+            if (currentUserRole === UserRole.ADMIN || 
+                (currentUserRole === UserRole.HIZMETSAGLAYICI_SEVIYE1 || 
+                 currentUserRole === UserRole.HIZMETSAGLAYICI_SEVIYE2)) {
+              query.recipientInsId = value;
             }
             break;
-          case "creatorInstId":
-            const creatorInstId = value;
-            if (creatorInstId) {
-              query.creatorInsId = creatorInstId;
+          case "creatorInsId":
+            if (currentUserRole === UserRole.ADMIN || 
+                (currentUserRole === UserRole.MUSTERI_SEVIYE1 || 
+                 currentUserRole === UserRole.MUSTERI_SEVIYE2)) {
+              query.creatorInsId = value;
             }
             break;
-          case "institutionFilter":
-            const institutionId = value;
-            if (institutionId) {
-              query.OR = [
-                { recipientInsId: institutionId },
-                { creatorInsId: institutionId }
-              ];
-            }
+          case "paymentTermId":
+            query.paymentTermId = value;
+            break;
+          case "status":
+            query.status = value as OfferStatus;
             break;
           case "requestId":
             const requestId = value;
@@ -196,11 +210,190 @@ const OfferListPage = async ({
             }
             break;
           case "search":
-            query.details = { contains: value, mode: "insensitive" };
+            query.OR = [
+              { details: { contains: value, mode: "insensitive" } },
+              {
+                creatorIns: {
+                  name: { contains: value, mode: "insensitive" }
+                }
+              },
+              {
+                recipientIns: {
+                  name: { contains: value, mode: "insensitive" }
+                }
+              },
+              {
+                creator: {
+                  name: { contains: value, mode: "insensitive" }
+                }
+              },
+              {
+                recipient: {
+                  name: { contains: value, mode: "insensitive" }
+                }
+              }
+            ];
+            break;
+          case "offerDateFrom":
+            // Teklif tarihi için filtreleme
+            if (query.offerDate && typeof query.offerDate === 'object') {
+              const dateFilter = query.offerDate as Prisma.DateTimeFilter<"OfferCards">;
+              dateFilter.gte = new Date(value);
+            } else {
+              query.offerDate = {
+                gte: new Date(value)
+              };
+            }
+            break;
+          case "offerDateTo":
+            if (query.offerDate && typeof query.offerDate === 'object') {
+              const dateFilter = query.offerDate as Prisma.DateTimeFilter<"OfferCards">;
+              dateFilter.lte = new Date(value);
+            } else {
+              query.offerDate = {
+                lte: new Date(value)
+              };
+            }
+            break;
+          case "validityDateFrom":
+            // Geçerlilik tarihi için filtreleme
+            if (query.validityDate && typeof query.validityDate === 'object') {
+              const dateFilter = query.validityDate as Prisma.DateTimeFilter<"OfferCards">;
+              dateFilter.gte = new Date(value);
+            } else {
+              query.validityDate = {
+                gte: new Date(value)
+              };
+            }
+            break;
+          case "validityDateTo":
+            if (query.validityDate && typeof query.validityDate === 'object') {
+              const dateFilter = query.validityDate as Prisma.DateTimeFilter<"OfferCards">;
+              dateFilter.lte = new Date(value);
+            } else {
+              query.validityDate = {
+                lte: new Date(value)
+              };
+            }
+            break;
+          case "isExpired":
+            if (value === "true") {
+              const today = new Date();
+              query.validityDate = { lt: today };
+              query.status = "Beklemede";
+            } else if (value === "false") {
+              const today = new Date();
+              query.OR = [
+                { validityDate: { gte: today } },
+                { status: { not: "Beklemede" } }
+              ];
+            }
             break;
         }
       }
     }
+  }
+
+  // Kurumları getir
+  let recipientInstitutions: { id: string; name: string }[] = [];
+  let creatorInstitutions: { id: string; name: string }[] = [];
+  let paymentTerms: { id: string; name: string }[] = [];
+
+  if (currentUserRole === UserRole.ADMIN) {
+    // Admin için tüm kurumları getir
+    const institutions = await prisma.institutions.findMany({
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' }
+    });
+    
+    recipientInstitutions = institutions;
+    creatorInstitutions = institutions;
+  } else if (currentUserRole === UserRole.HIZMETSAGLAYICI_SEVIYE1 || 
+             currentUserRole === UserRole.HIZMETSAGLAYICI_SEVIYE2) {
+    // Hizmet sağlayıcılar için müşteri kurumları getir
+    recipientInstitutions = await prisma.institutions.findMany({
+      where: {
+        User: {
+          some: {
+            role: {
+              in: [UserRole.MUSTERI_SEVIYE1, UserRole.MUSTERI_SEVIYE2]
+            }
+          }
+        }
+      },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' }
+    });
+  } else if (currentUserRole === UserRole.MUSTERI_SEVIYE1 || 
+             currentUserRole === UserRole.MUSTERI_SEVIYE2) {
+    // Müşteriler için hizmet sağlayıcı kurumları getir
+    creatorInstitutions = await prisma.institutions.findMany({
+      where: {
+        User: {
+          some: {
+            role: {
+              in: [UserRole.HIZMETSAGLAYICI_SEVIYE1, UserRole.HIZMETSAGLAYICI_SEVIYE2]
+            }
+          }
+        }
+      },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' }
+    });
+  }
+
+  // Ödeme koşullarını getir
+  paymentTerms = await prisma.paymentTermTypes.findMany({
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' }
+  });
+
+  // Dinamik sıralama için orderBy nesnesini oluştur
+  let orderBy: any = {};
+  
+  // Özel alanlar için sıralama mantığı
+  if (sortField === 'creatorIns') {
+    orderBy = {
+      creatorIns: {
+        name: sortOrder
+      }
+    };
+  } else if (sortField === 'recipientIns') {
+    orderBy = {
+      recipientIns: {
+        name: sortOrder
+      }
+    };
+  } else if (sortField === 'creator') {
+    orderBy = {
+      creator: {
+        name: sortOrder
+      }
+    };
+  } else if (sortField === 'recipient') {
+    orderBy = {
+      recipient: {
+        name: sortOrder
+      }
+    };
+  } else if (sortField === 'paymentTerm') {
+    orderBy = {
+      paymentTerm: {
+        name: sortOrder
+      }
+    };
+  } else {
+    // Diğer alanlar için doğrudan sıralama
+    orderBy[sortField] = sortOrder;
+  }
+
+  // İkincil sıralama (duruma göre önce, sonra tarihe göre)
+  if (sortField !== 'status' && sortField !== 'offerDate') {
+    orderBy = [
+      orderBy,
+      { status: 'asc' },
+      { offerDate: 'desc' }
+    ];
   }
 
   const [data, count] = await prisma.$transaction([
@@ -216,10 +409,103 @@ const OfferListPage = async ({
       },
       take: ITEM_PER_PAGE,
       skip: ITEM_PER_PAGE * (p - 1),
-      orderBy: [{ status: 'asc' }, { offerDate: 'desc' }]
+      orderBy: orderBy
     }),
     prisma.offerCards.count({ where: query }),
   ]);
+
+  // Sıralama seçenekleri
+  const sortOptions: SortOption[] = [
+    { label: "Teklif Veren Kurum (A-Z)", field: "creatorIns", order: "asc" },
+    { label: "Teklif Veren Kurum (Z-A)", field: "creatorIns", order: "desc" },
+    { label: "Teklif Veren Kişi (A-Z)", field: "creator", order: "asc" },
+    { label: "Teklif Veren Kişi (Z-A)", field: "creator", order: "desc" },
+    { label: "Müşteri Kurum (A-Z)", field: "recipientIns", order: "asc" },
+    { label: "Müşteri Kurum (Z-A)", field: "recipientIns", order: "desc" },
+    { label: "Müşteri Kişi (A-Z)", field: "recipient", order: "asc" },
+    { label: "Müşteri Kişi (Z-A)", field: "recipient", order: "desc" },
+    { label: "Teklif Tarihi (Yeni-Eski)", field: "offerDate", order: "desc" },
+    { label: "Teklif Tarihi (Eski-Yeni)", field: "offerDate", order: "asc" },
+    { label: "Geçerlilik Tarihi (Yakın-Uzak)", field: "validityDate", order: "asc" },
+    { label: "Geçerlilik Tarihi (Uzak-Yakın)", field: "validityDate", order: "desc" },
+    { label: "Durum (A-Z)", field: "status", order: "asc" },
+    { label: "Durum (Z-A)", field: "status", order: "desc" }
+  ];
+
+  // Filtreleme seçenekleri
+  const filterOptions: FilterOption[] = [];
+
+  // Durum filtresi - herkese gösteriliyor
+  filterOptions.push({
+    type: "status",
+    label: "Durum",
+    field: "status",
+    options: [
+      { value: "Onaylandi", label: "Onaylandı" },
+      { value: "Red", label: "Reddedildi" },
+      { value: "Beklemede", label: "Beklemede" }
+    ]
+  });
+
+  // Süresi dolmuş teklifler filtresi
+  filterOptions.push({
+    type: "status",
+    label: "Geçerlilik",
+    field: "isExpired",
+    options: [
+      { value: "true", label: "Süresi Dolmuş" },
+      { value: "false", label: "Geçerli" }
+    ]
+  });
+
+  // Ödeme koşulu filtresi
+  filterOptions.push({
+    type: "select",
+    label: "Ödeme Koşulu",
+    field: "paymentTermId",
+    data: paymentTerms
+  });
+
+  // Admin ve hizmet sağlayıcılar için müşteri kurumu filtresi
+  if ((currentUserRole === UserRole.ADMIN || 
+       currentUserRole === UserRole.HIZMETSAGLAYICI_SEVIYE1 || 
+       currentUserRole === UserRole.HIZMETSAGLAYICI_SEVIYE2) && 
+      recipientInstitutions.length > 0) {
+    filterOptions.push({
+      type: "select",
+      label: "Müşteri Kurumu",
+      field: "recipientInsId",
+      data: recipientInstitutions
+    });
+  }
+
+  // Admin ve müşteriler için hizmet sağlayıcı kurumu filtresi
+  if ((currentUserRole === UserRole.ADMIN || 
+       currentUserRole === UserRole.MUSTERI_SEVIYE1 || 
+       currentUserRole === UserRole.MUSTERI_SEVIYE2) && 
+      creatorInstitutions.length > 0) {
+    filterOptions.push({
+      type: "select",
+      label: "Hizmet Sağlayıcı Kurumu",
+      field: "creatorInsId",
+      data: creatorInstitutions
+    });
+  }
+
+  // Tarih aralığı filtreleri
+  filterOptions.push({
+    type: "dateRange",
+    label: "Teklif Tarihi",
+    fieldFrom: "offerDateFrom",
+    fieldTo: "offerDateTo"
+  });
+
+  filterOptions.push({
+    type: "dateRange",
+    label: "Geçerlilik Tarihi",
+    fieldFrom: "validityDateFrom",
+    fieldTo: "validityDateTo"
+  });
 
   const renderRow = (item: OfferList) => {
     // Veri dizisindeki indeksi bulma
@@ -335,14 +621,8 @@ const OfferListPage = async ({
         <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
           <TableSearch />
           <div className="flex items-center gap-4 self-end">
-            {currentUserRole === UserRole.ADMIN && (
-              <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow" title="Filtrele">
-                <Image src="/filter.png" alt="" width={14} height={14} />
-              </button>
-            )}
-            <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow" title="Sırala">
-              <Image src="/sort.png" alt="" width={14} height={14} />
-            </button>
+            <TableFilter options={filterOptions} />
+            <TableSort options={sortOptions} />
           </div>
         </div>
       </div>

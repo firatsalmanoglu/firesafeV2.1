@@ -2,6 +2,8 @@ import FormModal from "@/components/FormModal";
 import Pagination from "@/components/Pagination";
 import Table from "@/components/Table";
 import TableSearch from "@/components/TableSearch";
+import TableSort from "@/components/TableSort";
+import TableFilter from "@/components/TableFilter";
 import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { 
@@ -12,11 +14,18 @@ import {
   UserRole 
 } from "@prisma/client";
 import Image from "next/image";
-import Link from "next/link";
 import { ITEM_PER_PAGE } from "@/lib/settings";
+import { FilterOption } from "@/components/TableFilter";
 
 type IsgMemberList = IsgMembers & { institution: Institutions } & {
-  device: Devices[];
+  Devices: Devices[];
+};
+
+// TableSort bileşeninin beklediği SortOption tipi
+type SortOption = {
+  label: string;
+  field: string;
+  order: "asc" | "desc";
 };
 
 const columns = [
@@ -63,13 +72,131 @@ const IsgMemberListPage = async ({
 }) => {
   const session = await auth();
   const currentUserRole = session?.user?.role as UserRole;
+  
+  // URL parametrelerini genişletilmiş şekilde al
+  const { page, sort, order, ...queryParams } = searchParams;
+  const p = page ? parseInt(page) : 1;
+  
+  // Varsayılan olarak isme göre artan sıralama
+  const sortField = sort || 'name';
+  const sortOrder = order || 'asc';
+
+  const query: Prisma.IsgMembersWhereInput = {};
+
+  if (queryParams) {
+    for (const [key, value] of Object.entries(queryParams)) {
+      if (value !== undefined) {
+        switch (key) {
+          case "isgNumber":
+            query.isgNumber = { contains: value, mode: "insensitive" };
+            break;
+          case "institutionId":
+            query.institutionId = value;
+            break;
+          case "search":
+            query.OR = [
+              { name: { contains: value, mode: "insensitive" } },
+              { isgNumber: { contains: value, mode: "insensitive" } },
+              {
+                institution: {
+                  name: { contains: value, mode: "insensitive" }
+                }
+              }
+            ];
+            break;
+          case "contractDateFrom":
+            // Kontrat tarihi için filtreleme
+            if (query.contractDate && typeof query.contractDate === 'object') {
+              const dateFilter = query.contractDate as Prisma.DateTimeFilter<"IsgMembers">;
+              dateFilter.gte = new Date(value);
+            } else {
+              query.contractDate = {
+                gte: new Date(value)
+              };
+            }
+            break;
+          case "contractDateTo":
+            if (query.contractDate && typeof query.contractDate === 'object') {
+              const dateFilter = query.contractDate as Prisma.DateTimeFilter<"IsgMembers">;
+              dateFilter.lte = new Date(value);
+            } else {
+              query.contractDate = {
+                lte: new Date(value)
+              };
+            }
+            break;
+        }
+      }
+    }
+  }
+  
+  // Tüm kurumları getir (filtreleme için)
+  const institutions = await prisma.institutions.findMany({
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' }
+  });
+
+  // Dinamik sıralama için orderBy nesnesini oluştur
+  let orderBy: any = {};
+  
+  // Özel alanlar için sıralama mantığı
+  if (sortField === 'institution') {
+    orderBy = {
+      institution: {
+        name: sortOrder
+      }
+    };
+  } else {
+    // Diğer alanlar için doğrudan sıralama
+    orderBy[sortField] = sortOrder;
+  }
+
+  const [data, count] = await prisma.$transaction([
+    prisma.isgMembers.findMany({
+      where: query,
+      include: {
+        institution: true,
+        Devices: true,
+      },
+      take: ITEM_PER_PAGE,
+      skip: ITEM_PER_PAGE * (p - 1),
+      orderBy: orderBy
+    }),
+    prisma.isgMembers.count({ where: query }),
+  ]);
+
+  // Sıralama seçenekleri
+  const sortOptions: SortOption[] = [
+    { label: "Ad (A-Z)", field: "name", order: "asc" },
+    { label: "Ad (Z-A)", field: "name", order: "desc" },
+    { label: "ISG Numarası (A-Z)", field: "isgNumber", order: "asc" },
+    { label: "ISG Numarası (Z-A)", field: "isgNumber", order: "desc" },
+    { label: "Kontrat Tarihi (Yeni-Eski)", field: "contractDate", order: "desc" },
+    { label: "Kontrat Tarihi (Eski-Yeni)", field: "contractDate", order: "asc" },
+    { label: "Kurum (A-Z)", field: "institution", order: "asc" },
+    { label: "Kurum (Z-A)", field: "institution", order: "desc" },
+  ];
+
+  // Filtreleme seçenekleri - ISG Members için özelleştirilmiş
+  const filterOptions: FilterOption[] = [
+    { 
+      type: "select",
+      label: "Kurum", 
+      field: "institutionId", 
+      data: institutions 
+    },
+    { 
+      type: "dateRange",
+      label: "Kontrat Tarihi", 
+      fieldFrom: "contractDateFrom", 
+      fieldTo: "contractDateTo" 
+    }
+  ];
 
   const renderRow = (item: IsgMemberList) => {
     // Veri dizisindeki indeksi bulma
     const index = data.findIndex(d => d.id === item.id);
     // Sayfa ve veri sayısına göre sıra numarası hesaplama
-    const { page } = searchParams;
-    const p = page ? parseInt(page) : 1;
     const rowNumber = (p - 1) * ITEM_PER_PAGE + index + 1;
     
     // Tarih formatını düzenle
@@ -102,11 +229,6 @@ const IsgMemberListPage = async ({
         </td>
         <td className="p-4">
           <div className="flex items-center gap-2">
-            <Link href={`/list/isgmembers/${item.id}`}>
-              <button className="w-7 h-7 flex items-center justify-center rounded-full bg-lamaPurple" title="Görüntüle">
-                <Image src="/view.png" alt="" width={24} height={24} />
-              </button>
-            </Link>
             {isAuthorized(currentUserRole) && (
               <FormModal table="isgmember" type="delete" id={item.id} />
             )}
@@ -115,42 +237,6 @@ const IsgMemberListPage = async ({
       </tr>
     );
   };
-
-  const { page, ...queryParams } = searchParams;
-  const p = page ? parseInt(page) : 1;
-
-  const query: Prisma.IsgMembersWhereInput = {};
-
-  if (queryParams) {
-    for (const [key, value] of Object.entries(queryParams)) {
-      if (value !== undefined) {
-        switch (key) {
-          case "isgNumber":
-            const isgNumber = value;
-            if (isgNumber) {
-              query.isgNumber = isgNumber;
-            }
-            break;
-          case "search":
-            query.name = { contains: value, mode: "insensitive" };
-            break;
-        }
-      }
-    }
-  }
-
-  const [data, count] = await prisma.$transaction([
-    prisma.isgMembers.findMany({
-      where: query,
-      include: {
-        institution: true,
-        Devices: true,
-      },
-      take: ITEM_PER_PAGE,
-      skip: ITEM_PER_PAGE * (p - 1),
-    }),
-    prisma.isgMembers.count(),
-  ]);
 
   return (
     <div className="bg-white p-4 rounded-md flex-1 m-4 mt-0">
@@ -161,12 +247,8 @@ const IsgMemberListPage = async ({
         <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
           <TableSearch />
           <div className="flex items-center gap-4 self-end">
-            <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow" title="Filtrele">
-              <Image src="/filter.png" alt="" width={14} height={14} />
-            </button>
-            <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow" title="Sırala">
-              <Image src="/sort.png" alt="" width={14} height={14} />
-            </button>
+            <TableFilter options={filterOptions} />
+            <TableSort options={sortOptions} />
             {isAuthorized(currentUserRole) && (
               <FormModal table="isgmember" type="create" />
             )}

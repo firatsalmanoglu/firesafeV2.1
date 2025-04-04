@@ -2,15 +2,25 @@ import FormModal from "@/components/FormModal";
 import Pagination from "@/components/Pagination";
 import Table from "@/components/Table";
 import TableSearch from "@/components/TableSearch";
+import TableSort from "@/components/TableSort";
+import TableFilter from "@/components/TableFilter";
 import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { Institutions, Prisma, User, UserRole } from "@prisma/client";
 import Image from "next/image";
 import Link from "next/link";
 import { ITEM_PER_PAGE } from "@/lib/settings";
+import { FilterOption } from "@/components/TableFilter";
 
 type UserList = User & { 
   institution: Institutions | null 
+};
+
+// TableSort bileşeninin beklediği SortOption tipi ile uyumlu olacak şekilde tanımlandı
+type SortOption = {
+  label: string;
+  field: string;
+  order: "asc" | "desc";
 };
 
 const columns = [
@@ -97,8 +107,13 @@ const UserListPage = async ({
 
   const currentUserInstitutionId = currentUser?.institutionId;
 
-  const { page, ...queryParams } = searchParams;
+  // URL parametrelerini genişletilmiş şekilde al
+  const { page, sort, order, ...queryParams } = searchParams;
   const p = page ? parseInt(page) : 1;
+  
+  // Varsayılan olarak isme göre artan sıralama
+  const sortField = sort || 'name';
+  const sortOrder = order || 'asc';
 
   const query: Prisma.UserWhereInput = {};
 
@@ -118,16 +133,74 @@ const UserListPage = async ({
               }
             }
             break;
+          case "role":
+            // Rol bazlı filtreleme eklendi
+            query.role = value as UserRole;
+            break;
           case "search":
             query.OR = [
               { name: { contains: value, mode: "insensitive" } },
               { email: { contains: value, mode: "insensitive" } },
-              { phone: { contains: value, mode: "insensitive" } }
+              { phone: { contains: value, mode: "insensitive" } },
+              // Kurum adı araması eklendi
+              {
+                institution: {
+                  name: { contains: value, mode: "insensitive" }
+                }
+              }
             ];
+            break;
+          case "registrationDateFrom":
+            // Tarih aralığı filtrelemesi için güvenli dönüşüm
+            if (query.registrationDate && typeof query.registrationDate === 'object') {
+              // Tip dönüşümü
+              const dateFilter = query.registrationDate as Prisma.DateTimeFilter<"User">;
+              dateFilter.gte = new Date(value);
+            } else {
+              // Yeni filtre
+              query.registrationDate = {
+                gte: new Date(value)
+              };
+            }
+            break;
+          case "registrationDateTo":
+            if (query.registrationDate && typeof query.registrationDate === 'object') {
+              // Tip dönüşümü
+              const dateFilter = query.registrationDate as Prisma.DateTimeFilter<"User">;
+              dateFilter.lte = new Date(value);
+            } else {
+              // Yeni filtre
+              query.registrationDate = {
+                lte: new Date(value)
+              };
+            }
             break;
         }
       }
     }
+  }
+
+  // Admin için kurumlar listesini getir
+  const institutions = currentUserRole === UserRole.ADMIN
+    ? await prisma.institutions.findMany({
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' }
+      })
+    : [];
+
+  // Dinamik sıralama için orderBy nesnesini oluştur
+  let orderBy: any = {};
+  
+  // Özel alanlar için sıralama mantığı
+  if (sortField === 'institution') {
+    orderBy = {
+      institution: {
+        name: sortOrder
+      }
+    };
+  } else {
+    // Diğer alanlar için doğrudan sıralama
+    orderBy[sortField] = sortOrder;
   }
 
   const [data, count] = await prisma.$transaction([
@@ -138,10 +211,54 @@ const UserListPage = async ({
       },
       take: ITEM_PER_PAGE,
       skip: ITEM_PER_PAGE * (p - 1),
-      orderBy: { name: 'asc' }
+      orderBy: orderBy
     }),
     prisma.user.count({ where: query }),
   ]);
+
+  // Sıralama seçenekleri - order tipi açıkça "asc" | "desc" olarak belirleniyor
+  const sortOptions: SortOption[] = [
+    { label: "Ad (A-Z)", field: "name", order: "asc" },
+    { label: "Ad (Z-A)", field: "name", order: "desc" },
+    { label: "E-posta (A-Z)", field: "email", order: "asc" },
+    { label: "E-posta (Z-A)", field: "email", order: "desc" },
+    { label: "Rol (A-Z)", field: "role", order: "asc" },
+    { label: "Rol (Z-A)", field: "role", order: "desc" },
+    { label: "Üyelik Tarihi (Yeni-Eski)", field: "registrationDate", order: "desc" },
+    { label: "Üyelik Tarihi (Eski-Yeni)", field: "registrationDate", order: "asc" },
+    { label: "Kurum (A-Z)", field: "institution", order: "asc" },
+    { label: "Kurum (Z-A)", field: "institution", order: "desc" },
+  ];
+
+  // Filtreleme seçenekleri - User tablosu için özelleştirilmiş
+  const filterOptions: FilterOption[] = [
+    {
+      type: "select",
+      label: "Kurum",
+      field: "institutionId",
+      data: institutions
+    },
+    {
+      type: "status",
+      label: "Kullanıcı Rolü",
+      field: "role",
+      options: [
+        { value: "ADMIN", label: "Yönetici" },
+        { value: "MUSTERI_SEVIYE1", label: "Müşteri Yöneticisi" },
+        { value: "MUSTERI_SEVIYE2", label: "Müşteri Kullanıcısı" },
+        { value: "HIZMETSAGLAYICI_SEVIYE1", label: "Hizmet Sağlayıcı Yöneticisi" },
+        { value: "HIZMETSAGLAYICI_SEVIYE2", label: "Hizmet Sağlayıcı Kullanıcısı" },
+        { value: "GUEST", label: "Misafir" },
+        { value: "USER", label: "Kullanıcı" }
+      ]
+    },
+    {
+      type: "dateRange",
+      label: "Üyelik Tarihi",
+      fieldFrom: "registrationDateFrom",
+      fieldTo: "registrationDateTo"
+    }
+  ];
 
   const renderRow = (item: UserList) => {
     // Veri dizisindeki indeksi bulma
@@ -265,13 +382,9 @@ const UserListPage = async ({
           <TableSearch />
           <div className="flex items-center gap-4 self-end">
             {currentUserRole === UserRole.ADMIN && (
-              <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow" title="Filtrele">
-                <Image src="/filter.png" alt="" width={14} height={14} />
-              </button>
+              <TableFilter options={filterOptions} />
             )}
-            <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow" title="Sırala">
-              <Image src="/sort.png" alt="" width={14} height={14} />
-            </button>
+            <TableSort options={sortOptions} />
             {canCreateUser(currentUserRole) && (
               <FormModal table="user" type="create" />
             )}

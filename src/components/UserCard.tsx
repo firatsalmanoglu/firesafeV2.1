@@ -1,18 +1,27 @@
 import Image from "next/image";
 import prisma from "@/lib/prisma";
-
+import { auth } from "@/auth";
 
 const UserCard = async ({
   type,
   link,
 }: {
-
-type: "teklifler" | "bakimlar" | "cihazlar" | "randevular" | "cihazlarim" | "bakimiyaklasan" | "tekliflerim" | "bakimlarim" |
-       "tekliflerimm" | "bekleyen" | "yaklasanrandevularim" | "bakimlarimm"; // Yeni türleri ekledik
-link: string;
+  type: "teklifler" | "bakimlar" | "cihazlar" | "randevular" | "cihazlarim" | "bakimiyaklasan" | "tekliflerim" | "bakimlarim" |
+       "tekliflerimm" | "bekleyen" | "yaklasanrandevularim" | "bakimlarimm";
+  link: string;
 }) => {
-
+  // Kullanıcı kimliğini al
+  const session = await auth();
+  const userId = session?.user?.id || "";
   
+  // Kullanıcı bilgilerini veritabanından al (institutionId dahil)
+  const userWithInstitution = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { institutionId: true }
+  });
+  
+  const institutionId = userWithInstitution?.institutionId || "";
+
   const modelMap: Record<typeof type, any> = {
     teklifler: prisma.offerCards,
     bakimlar: prisma.maintenanceCards,
@@ -22,11 +31,10 @@ link: string;
     bakimiyaklasan: prisma.devices,
     tekliflerim: prisma.offerCards,
     bakimlarim: prisma.maintenanceCards,
-    tekliflerimm: prisma.offerCards, // Yeni türler için modeller
+    tekliflerimm: prisma.offerCards,
     bekleyen: prisma.offerCards,
     yaklasanrandevularim: prisma.appointments,
     bakimlarimm: prisma.maintenanceCards,
-    
   };
 
   let data;
@@ -37,87 +45,112 @@ link: string;
     type === "cihazlar" ||
     type === "randevular"
   ) {
-    // .count() çalıştır
+    // Admin için tüm kayıtları say
     data = await modelMap[type].count();
   } else {
-    // Özel where sorgusu ile .count() çalıştır
+    // Kullanıcıya özel sorgular
     let whereClause;
 
     switch (type) {
       case "cihazlarim":
+        // Kullanıcının owner olduğu cihazlar
+        whereClause = { ownerId: userId };
+        break;
+        break;
       case "bakimiyaklasan":
-        whereClause = { ownerId:"2" };
+        // Kullanıcının owner olduğu ve bakımı yaklaşan cihazlar
+        const thirtyDaysLater = new Date();
+        thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
+        
+        whereClause = { 
+          ownerId: userId,
+          nextControlDate: {
+            lte: thirtyDaysLater
+          }
+        };
+        break;
         break;
       case "tekliflerim":
-        whereClause = { recipientInsId: "2" };
+        // Kullanıcının kurumuna gelen teklifler
+        whereClause = { recipientInsId: institutionId };
         break;
       case "bakimlarim":
-        whereClause = { customerInsId: "2" };
+        // Kullanıcının kurumuna yapılan bakımlar
+        whereClause = { customerInsId: institutionId };
         break;
       case "tekliflerimm":
-        whereClause = { creatorId: "2" };
+        // Kullanıcının oluşturduğu teklifler
+        whereClause = { creatorId: userId };
         break;
       case "bekleyen":
-        whereClause = { creatorId: "2", status: "Beklemede" };
+        // Kullanıcının bekleyen teklifleri
+        whereClause = { creatorId: userId, status: "Beklemede" };
         break;
       case "yaklasanrandevularim":
-        whereClause = { creatorId: "2" };
+        // Kullanıcının kurumunun oluşturduğu yaklaşan randevular
+        const nextWeek = new Date();
+        nextWeek.setDate(nextWeek.getDate() + 7);
+        
+        whereClause = { 
+          creatorInsId: institutionId,
+          start: {
+            gte: new Date(),
+            lte: nextWeek
+          }
+        };
+        break;
         break;
       case "bakimlarimm":
-        whereClause = { providerId: "2" };
+        // Kullanıcının sağladığı bakımlar (servis sağlayıcı rolü için)
+        whereClause = { providerId: userId };
         break;
       default:
         whereClause = {};
     }
 
     const model = modelMap[type];
-  if (!model) {
-    throw new Error(`Model not found for type: ${type}`);
-  }
+    if (!model) {
+      throw new Error(`Model not found for type: ${type}`);
+    }
 
     // Sayısını al
     data = await modelMap[type].count({
       where: whereClause,
     });
   }
-   
- // Türkçe isimlerin eşleştirmesini yapıyoruz.
- const typeLabels: Record<string, string> = {
-  teklifler: "Tüm Teklifler",
-  bakimlar: "Tüm Bakımlar",
-  cihazlar: "Tüm Cihazlar",
-  randevular: "Tüm Randevular",
-  cihazlarim: "Cihazlarım",
-  bakimiyaklasan: "Bakımı Yaklaşan Cihazlarım",
-  tekliflerim: "Tekliflerim",
-  bakimlarim: "Bakımlarım",
-  tekliflerimm: "Tekliflerim",
-  bekleyen: "Bekleyen Tekliflerim",
-  yaklasanrandevularim: "Yaklaşan Randevularım",
-  bakimlarimm: "Bakımlarım",
-  // Diğer türler için gerekli Türkçe isimlendirmeleri ekleyebilirsiniz.
-};
 
-// Bugünün tarihini al
-const today = new Date();
+  // Türkçe isimlerin eşleştirmesini yapıyoruz.
+  const typeLabels: Record<string, string> = {
+    teklifler: "Tüm Teklifler",
+    bakimlar: "Tüm Bakımlar",
+    cihazlar: "Tüm Cihazlar",
+    randevular: "Tüm Randevular",
+    cihazlarim: "Cihazlarım",
+    bakimiyaklasan: "Bakımı Yaklaşan Cihazlarım",
+    tekliflerim: "Tekliflerim",
+    bakimlarim: "Bakımlarım",
+    tekliflerimm: "Tekliflerim",
+    bekleyen: "Bekleyen Tekliflerim",
+    yaklasanrandevularim: "Yaklaşan Randevularım",
+    bakimlarimm: "Bakımlarım",
+  };
 
-// Türkçe format ile tarihi yazdır
-const formattedDate = new Intl.DateTimeFormat("tr-TR").format(today);
+  // Bugünün tarihini al
+  const today = new Date();
 
-//console.log(formattedDate); // Örneğin: "13.11.2024"
+  // Türkçe format ile tarihi yazdır
+  const formattedDate = new Intl.DateTimeFormat("tr-TR").format(today);
 
   return (
     <a href={link} className="rounded-2xl odd:bg-lamaSky even:bg-lamaPurple p-4 flex-1 min-w-[130px]">
       <div className="flex justify-between items-center">
         <span className="text-[10px] bg-white px-2 py-1 rounded-full text-green-600">
-        {formattedDate}
+          {formattedDate}
         </span>
         <Image src="/more.png" alt="" width={20} height={20} />
       </div>
       <h1 className="text-2xl font-semibold my-4">{data}</h1>
-      {/* <h2 className="capitalize text-sm font-medium text-whitetext">{type}</h2> */}
       <h2 className="capitalize text-sm font-medium text-whitetext">{typeLabels[type]}</h2>
-    
     </a>
   );
 };

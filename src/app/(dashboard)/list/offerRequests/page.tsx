@@ -2,6 +2,8 @@ import FormModal from "@/components/FormModal";
 import Pagination from "@/components/Pagination";
 import Table from "@/components/Table";
 import TableSearch from "@/components/TableSearch";
+import TableSort from "@/components/TableSort";
+import TableFilter from "@/components/TableFilter";
 import prisma from "@/lib/prisma";
 import { auth } from "@/auth";
 import { ITEM_PER_PAGE } from "@/lib/settings";
@@ -17,6 +19,7 @@ import {
 } from "@prisma/client";
 import Image from "next/image";
 import Link from "next/link";
+import { FilterOption } from "@/components/TableFilter";
 
 type OfferRequestList = OfferRequests & {
   creatorIns: Institutions
@@ -26,6 +29,13 @@ type OfferRequestList = OfferRequests & {
   RequestSub: (RequestSub & {
     service: Services
   })[];
+};
+
+// TableSort bileşeninin beklediği SortOption tipi
+type SortOption = {
+  label: string;
+  field: string;
+  order: "asc" | "desc";
 };
 
 const columns = [
@@ -125,8 +135,13 @@ const OfferRequestListPage = async ({
   const currentUserId = currentUser?.id;
   const currentUserInstitutionId = currentUser?.institutionId;
 
-  const { page, ...queryParams } = searchParams;
+  // URL parametrelerini genişletilmiş şekilde al
+  const { page, sort, order, ...queryParams } = searchParams;
   const p = page ? parseInt(page) : 1;
+  
+  // Varsayılan olarak duruma göre artan ve tarihe göre azalan sıralama
+  const sortField = sort || 'status';
+  const sortOrder = order || 'asc';
 
   const query: Prisma.OfferRequestsWhereInput = {};
 
@@ -150,12 +165,126 @@ const OfferRequestListPage = async ({
               query.id = id;
             }
             break;
+          case "creatorInsId":
+            if (currentUserRole === UserRole.ADMIN || 
+                currentUserRole === UserRole.HIZMETSAGLAYICI_SEVIYE1 ||
+                currentUserRole === UserRole.HIZMETSAGLAYICI_SEVIYE2) {
+              query.creatorInsId = value;
+            }
+            break;
+          case "status":
+            query.status = value as RequestStatus;
+            break;
           case "search":
-            query.details = { contains: value, mode: "insensitive" };
+            query.OR = [
+              { details: { contains: value, mode: "insensitive" } },
+              {
+                creatorIns: {
+                  name: { contains: value, mode: "insensitive" }
+                }
+              },
+              {
+                creator: {
+                  name: { contains: value, mode: "insensitive" }
+                }
+              },
+              {
+                RequestSub: {
+                  some: {
+                    service: {
+                      name: { contains: value, mode: "insensitive" }
+                    }
+                  }
+                }
+              }
+            ];
+            break;
+          case "startDateFrom":
+            // Başlangıç tarihi için filtreleme
+            if (query.start && typeof query.start === 'object') {
+              const dateFilter = query.start as Prisma.DateTimeFilter<"OfferRequests">;
+              dateFilter.gte = new Date(value);
+            } else {
+              query.start = {
+                gte: new Date(value)
+              };
+            }
+            break;
+          case "startDateTo":
+            if (query.start && typeof query.start === 'object') {
+              const dateFilter = query.start as Prisma.DateTimeFilter<"OfferRequests">;
+              dateFilter.lte = new Date(value);
+            } else {
+              query.start = {
+                lte: new Date(value)
+              };
+            }
+            break;
+          case "endDateFrom":
+            // Bitiş tarihi için filtreleme
+            if (query.end && typeof query.end === 'object') {
+              const dateFilter = query.end as Prisma.DateTimeFilter<"OfferRequests">;
+              dateFilter.gte = new Date(value);
+            } else {
+              query.end = {
+                gte: new Date(value)
+              };
+            }
+            break;
+          case "endDateTo":
+            if (query.end && typeof query.end === 'object') {
+              const dateFilter = query.end as Prisma.DateTimeFilter<"OfferRequests">;
+              dateFilter.lte = new Date(value);
+            } else {
+              query.end = {
+                lte: new Date(value)
+              };
+            }
             break;
         }
       }
     }
+  }
+
+  // Admin veya hizmet sağlayıcılar için kurumları getir (filtreleme için)
+  let institutions: { id: string; name: string }[] = [];
+  if (currentUserRole === UserRole.ADMIN || 
+      currentUserRole === UserRole.HIZMETSAGLAYICI_SEVIYE1 ||
+      currentUserRole === UserRole.HIZMETSAGLAYICI_SEVIYE2) {
+    institutions = await prisma.institutions.findMany({
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' }
+    });
+  }
+
+  // Dinamik sıralama için orderBy nesnesini oluştur
+  let orderBy: any = {};
+  
+  // Özel alanlar için sıralama mantığı
+  if (sortField === 'creatorIns') {
+    orderBy = {
+      creatorIns: {
+        name: sortOrder
+      }
+    };
+  } else if (sortField === 'creator') {
+    orderBy = {
+      creator: {
+        name: sortOrder
+      }
+    };
+  } else {
+    // Diğer alanlar için doğrudan sıralama
+    orderBy[sortField] = sortOrder;
+  }
+
+  // İkincil sıralama (duruma göre önce, sonra tarihe göre)
+  if (sortField !== 'status' && sortField !== 'start') {
+    orderBy = [
+      orderBy,
+      { status: 'asc' },
+      { start: 'desc' }
+    ];
   }
 
   const [data, count] = await prisma.$transaction([
@@ -172,10 +301,69 @@ const OfferRequestListPage = async ({
       },
       take: ITEM_PER_PAGE,
       skip: ITEM_PER_PAGE * (p - 1),
-      orderBy: [{ status: 'asc' }, { start: 'desc' }]
+      orderBy: orderBy
     }),
     prisma.offerRequests.count({ where: query }),
   ]);
+
+  // Sıralama seçenekleri
+  const sortOptions: SortOption[] = [
+    { label: "Kurum (A-Z)", field: "creatorIns", order: "asc" },
+    { label: "Kurum (Z-A)", field: "creatorIns", order: "desc" },
+    { label: "Kullanıcı (A-Z)", field: "creator", order: "asc" },
+    { label: "Kullanıcı (Z-A)", field: "creator", order: "desc" },
+    { label: "Başlangıç Tarihi (Yeni-Eski)", field: "start", order: "desc" },
+    { label: "Başlangıç Tarihi (Eski-Yeni)", field: "start", order: "asc" },
+    { label: "Bitiş Tarihi (Yeni-Eski)", field: "end", order: "desc" },
+    { label: "Bitiş Tarihi (Eski-Yeni)", field: "end", order: "asc" },
+    { label: "Durum (A-Z)", field: "status", order: "asc" },
+    { label: "Durum (Z-A)", field: "status", order: "desc" }
+  ];
+
+  // Filtreleme seçenekleri - OfferRequests için özelleştirilmiş
+  const filterOptions: FilterOption[] = [];
+
+  // Durum filtresi - herkese gösteriliyor
+  filterOptions.push({
+    type: "status",
+    label: "Durum",
+    field: "status",
+    options: [
+      { value: "Aktif", label: "Aktif" },
+      { value: "Pasif", label: "Pasif" },
+      { value: "Beklemede", label: "Beklemede" },
+      { value: "Iptal", label: "İptal" },
+      { value: "TeklifAlindi", label: "Teklif Alındı" },
+      { value: "Tamamlandi", label: "Tamamlandı" }
+    ]
+  });
+
+  // Kurum filtresi - sadece admin ve hizmet sağlayıcılar için
+  if (currentUserRole === UserRole.ADMIN || 
+      currentUserRole === UserRole.HIZMETSAGLAYICI_SEVIYE1 ||
+      currentUserRole === UserRole.HIZMETSAGLAYICI_SEVIYE2) {
+    filterOptions.push({
+      type: "select",
+      label: "Talep Eden Kurum",
+      field: "creatorInsId",
+      data: institutions
+    });
+  }
+
+  // Tarih aralığı filtreleri - herkese gösteriliyor
+  filterOptions.push({
+    type: "dateRange",
+    label: "Başlangıç Tarihi",
+    fieldFrom: "startDateFrom",
+    fieldTo: "startDateTo"
+  });
+
+  filterOptions.push({
+    type: "dateRange",
+    label: "Bitiş Tarihi",
+    fieldFrom: "endDateFrom",
+    fieldTo: "endDateTo"
+  });
 
   const renderRow = (item: OfferRequestList) => {
     // Veri dizisindeki indeksi bulma
@@ -314,14 +502,8 @@ const OfferRequestListPage = async ({
         <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
           <TableSearch />
           <div className="flex items-center gap-4 self-end">
-            {currentUserRole === UserRole.ADMIN && (
-              <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow" title="Filtrele">
-                <Image src="/filter.png" alt="" width={14} height={14} />
-              </button>
-            )}
-            <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow" title="Sırala">
-              <Image src="/sort.png" alt="" width={14} height={14} />
-            </button>
+            <TableFilter options={filterOptions} />
+            <TableSort options={sortOptions} />
             {canCreateOfferRequest(currentUserRole) && (
               <FormModal
                 table="offerRequest"

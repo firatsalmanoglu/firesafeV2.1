@@ -298,8 +298,23 @@ const SingleDevicePage = async ({
               className="p-3 rounded-md bg-lamaPurple"
               href={`/list/notifications?deviceId=${device.id}`}
             >
-              Cihazla İlgili Bildirimleri
+              Cihazla İlgili Bildirimler
             </Link>
+
+            {/* Yeni eklenen Bakım Gir butonu */}
+            <div className="flex items-center gap-2">
+      <div className="p-3 rounded-md bg-lamaSky">
+        Bakım Gir
+      </div>
+      <FormModal
+        table="maintenance"
+        type="create"
+        data={{
+          serialNumber: device.serialNumber
+        }}
+        currentUserId={currentUserId}
+      />
+    </div>
           </div>
         </div>
         <Announcements />
